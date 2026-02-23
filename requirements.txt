@@ -1,0 +1,12 @@
+pandas==2.2.3
+numpy==2.0.2
+scikit-learn==1.5.2
+lightgbm==4.5.0
+mlflow-skinny==2.16.2
+pyarrow==17.0.0
+fastapi==0.115.6
+uvicorn[standard]==0.32.1
+pydantic==2.10.2
+python-dotenv==1.0.1
+joblib==1.4.2
+rich==13.9.4

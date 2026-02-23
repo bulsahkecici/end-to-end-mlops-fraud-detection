@@ -13,8 +13,8 @@ import pandas as pd
 from sklearn.metrics import average_precision_score, roc_auc_score
 from sklearn.model_selection import train_test_split
 
-from src.data.ingest import load_train
-from src.features.build import build_features
+from data.ingest import load_train
+from features.build import build_features
 
 MLFLOW_TRACKING_URI = os.getenv("MLFLOW_TRACKING_URI", "http://localhost:5000")
 MODEL_NAME = os.getenv("MODEL_NAME", "ieee_fraud_lgbm")
@@ -35,10 +35,9 @@ def main() -> None:
         X, y, test_size=0.2, random_state=42, stratify=y
     )
 
-    cat_cols = meta["cat_cols"]
-    cat_idx = [list(X.columns).index(c) for c in cat_cols if c in X.columns]
-    lgb_train = lgb.Dataset(X_train, label=y_train, categorical_feature=cat_idx)
-    lgb_val = lgb.Dataset(X_val, label=y_val, categorical_feature=cat_idx, reference=lgb_train)
+    # X is already numeric: cat cols encoded to int in build_features
+    lgb_train = lgb.Dataset(X_train, label=y_train)
+    lgb_val = lgb.Dataset(X_val, label=y_val, reference=lgb_train)
 
     params = {
         "objective": "binary",

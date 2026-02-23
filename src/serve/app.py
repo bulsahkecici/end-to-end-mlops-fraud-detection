@@ -45,6 +45,28 @@ def load_model() -> None:
         feature_meta = None
 
 
+def _encode_categoricals(df: pd.DataFrame) -> pd.DataFrame:
+    """Encode cat cols to int using feature_meta['cat_mappings']; unseen/missing -> -1."""
+    if feature_meta is None:
+        return df
+    cat_mappings = feature_meta.get("cat_mappings") or {}
+    out = df.copy()
+    for c, categories in cat_mappings.items():
+        if c not in out.columns:
+            continue
+        # map value -> index in categories, else -1
+        def code(val):
+            if val is None or (isinstance(val, float) and pd.isna(val)):
+                return -1
+            try:
+                idx = categories.index(val)
+                return idx
+            except (ValueError, TypeError):
+                return -1
+        out[c] = out[c].map(code).astype("int32")
+    return out
+
+
 def _ensure_columns(records: list[dict]) -> pd.DataFrame:
     df = pd.DataFrame(records)
     if feature_meta is None:
@@ -56,7 +78,9 @@ def _ensure_columns(records: list[dict]) -> pd.DataFrame:
     for c in use_cols:
         if c not in out.columns:
             out[c] = None
-    return out[use_cols]
+    out = out[use_cols]
+    out = _encode_categoricals(out)
+    return out
 
 
 @app.get("/health")

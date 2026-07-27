@@ -226,6 +226,13 @@ def run_training(
         mlflow.log_dict(test_metrics, "test_metrics.json")
 
         input_example = X_train_raw[schema.use_cols].head(5).reset_index(drop=True)
+        # Match the declared `double` dtype in input_schema below exactly —
+        # newer mlflow versions validate input_example against the logged
+        # signature at log-model time, and int64 columns (e.g. TransactionDT,
+        # which has no missing values in this sample) would otherwise fail
+        # that check even though the pipeline itself handles either dtype.
+        for col in schema.numeric_cols:
+            input_example[col] = input_example[col].astype("float64")
         example_proba = pipeline.predict_proba(input_example)[:, 1]
         example_output = pd.DataFrame(
             {

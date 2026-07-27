@@ -7,6 +7,12 @@ RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
 FROM python:3.11.10-slim AS runtime
 
+# libgomp1 provides libgomp.so.1, the OpenMP runtime lightgbm's compiled
+# wheel dynamically links against — absent from the slim base image, so
+# without it the import fails at container start (not at build time).
+RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+    && rm -rf /var/lib/apt/lists/*
+
 # Pin a fixed, non-root uid/gid so file ownership is deterministic across builds.
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 
@@ -22,7 +28,8 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MLFLOW_TRACKING_URI=http://mlflow:5000 \
     MODEL_NAME=ieee_fraud_lgbm \
-    API_MAX_BATCH_SIZE=500
+    API_MAX_BATCH_SIZE=500 \
+    MPLCONFIGDIR=/tmp/matplotlib
 
 EXPOSE 8000
 

@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+FROM python:3.11.10-slim AS builder
+
+WORKDIR /build
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.11.10-slim AS runtime
+
+# Pin a fixed, non-root uid/gid so file ownership is deterministic across builds.
+RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
+
+COPY --from=builder /install /usr/local
+
+WORKDIR /app
+COPY src ./src
+
+RUN chown -R app:app /app
+USER app
+
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1 \
+    MLFLOW_TRACKING_URI=http://mlflow:5000 \
+    MODEL_NAME=ieee_fraud_lgbm \
+    API_MAX_BATCH_SIZE=500
+
+EXPOSE 8000
+
+HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
+    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3).status==200 else 1)"
+
+CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2", "--proxy-headers"]

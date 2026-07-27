@@ -1,14 +1,151 @@
+x-api-build: &api-build
+  context: .
+  dockerfile: Dockerfile.api
+
+x-api-env-common: &api-env-common
+  MODEL_NAME: ${MODEL_NAME:-ieee_fraud_lgbm}
+  CHAMPION_ALIAS: ${CHAMPION_ALIAS:-champion}
+  API_MAX_BATCH_SIZE: ${API_MAX_BATCH_SIZE:-500}
+  API_KEY_ENABLED: ${API_KEY_ENABLED:-false}
+  API_KEY: ${API_KEY:-}
+  CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
+
 services:
+  # ---------------------------------------------------------------------
+  # local-lite profile: sqlite backend, local filesystem artifact store.
+  # No credentials required. `make docker-up` uses this by default.
+  # ---------------------------------------------------------------------
   mlflow:
-    image: ghcr.io/mlflow/mlflow:v2.16.2
+    image: ghcr.io/mlflow/mlflow:v2.19.0
+    profiles: ["local-lite"]
     ports:
       - "5000:5000"
     volumes:
       - ./mlflow_db:/db
     command: >
-      mlflow server
-      --host 0.0.0.0
-      --port 5000
+      mlflow server --host 0.0.0.0 --port 5000
       --backend-store-uri sqlite:////db/mlflow.db
-      --serve-artifacts
-      --artifacts-destination /db/artifacts
+      --serve-artifacts --artifacts-destination /db/artifacts
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    networks: [mlops]
+
+  api:
+    build: *api-build
+    profiles: ["local-lite"]
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *api-env-common
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    networks: [mlops]
+    restart: unless-stopped
+
+  # ---------------------------------------------------------------------
+  # production-like profile: Postgres-backed MLflow tracking store +
+  # MinIO (S3-compatible) artifact store. Requires POSTGRES_PASSWORD,
+  # MINIO_ROOT_USER, MINIO_ROOT_PASSWORD to be set (see .env.example) —
+  # docker compose refuses to start without them.
+  # ---------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    profiles: ["production-like"]
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-mlflow}
+      POSTGRES_USER: ${POSTGRES_USER:-mlflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in .env}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-mlflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [mlops]
+
+  minio:
+    image: minio/minio:latest
+    profiles: ["production-like"]
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?MINIO_ROOT_USER must be set in .env}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?MINIO_ROOT_PASSWORD must be set in .env}
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    networks: [mlops]
+
+  minio-init:
+    image: minio/mc:latest
+    profiles: ["production-like"]
+    depends_on:
+      minio:
+        condition: service_healthy
+    entrypoint: >
+      /bin/sh -c "
+      mc alias set local http://minio:9000 $${MINIO_ROOT_USER} $${MINIO_ROOT_PASSWORD} &&
+      mc mb -p local/$${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts}
+      "
+    networks: [mlops]
+
+  mlflow-prod:
+    image: ghcr.io/mlflow/mlflow:v2.19.0
+    profiles: ["production-like"]
+    ports:
+      - "5000:5000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio-init:
+        condition: service_completed_successfully
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: http://minio:9000
+      AWS_ACCESS_KEY_ID: ${MINIO_ROOT_USER}
+      AWS_SECRET_ACCESS_KEY: ${MINIO_ROOT_PASSWORD}
+    command: >
+      mlflow server --host 0.0.0.0 --port 5000
+      --backend-store-uri postgresql://${POSTGRES_USER:-mlflow}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-mlflow}
+      --serve-artifacts --artifacts-destination s3://${MLFLOW_ARTIFACT_BUCKET:-mlflow-artifacts}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://localhost:5000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    networks: [mlops]
+
+  api-prod:
+    build: *api-build
+    profiles: ["production-like"]
+    ports:
+      - "8000:8000"
+    environment:
+      <<: *api-env-common
+      MLFLOW_TRACKING_URI: http://mlflow-prod:5000
+    depends_on:
+      mlflow-prod:
+        condition: service_healthy
+    networks: [mlops]
+    restart: unless-stopped
+
+networks:
+  mlops:
+    driver: bridge
+
+volumes:
+  postgres_data:
+  minio_data:

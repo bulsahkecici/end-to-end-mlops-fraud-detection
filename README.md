@@ -1,104 +1,166 @@
 # End-to-End MLOps: IEEE-CIS Fraud Detection
 
-A CV-ready, minimal MLOps demo using the **IEEE-CIS Fraud Detection (Vesta)** dataset: ingest → feature pipeline → train (LightGBM) → register to MLflow Model Registry (alias `prod`) → FastAPI inference. Designed to run on **8GB RAM** (sampling + type optimization) and on **Ubuntu** and **Windows** with the same setup.
+A CV-ready, end-to-end MLOps project on the **IEEE-CIS Fraud Detection (Vesta)** dataset: ingest → validate → temporal split → single shared preprocessing+model pipeline (LightGBM) → MLflow Model Registry (`candidate` → `champion` promotion gate) → FastAPI inference → Docker → CI.
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  MLflow (Docker)                                                         │
-│  - Backend: sqlite:///db/mlflow.db                                        │
-│  - Artifacts: /db/artifacts (--serve-artifacts)                           │
-│  - Volume: ./mlflow_db:/db                                                │
+│  MLflow (tracking + model registry)                                     │
+│  local-lite profile: sqlite + local artifact dir                        │
+│  production-like profile: Postgres backend + MinIO (S3-compatible)      │
 └─────────────────────────────────────────────────────────────────────────┘
-         │
-         │ MLFLOW_TRACKING_URI=http://localhost:5000
+         │ MLFLOW_TRACKING_URI
          ▼
-┌──────────────────────┐     ┌──────────────────────┐
-│  Train pipeline      │     │  FastAPI serve        │
-│  src/train_ieee.py   │────▶│  src/serve/app.py     │
-│  - Ingest (sample)   │     │  - models:/...@prod   │
-│  - Features          │     │  - GET /health        │
-│  - LightGBM + MLflow │     │  - POST /predict      │
-└──────────────────────┘     └──────────────────────┘
+┌────────────────────────┐        ┌──────────────────────────┐
+│ src/modeling/train.py   │        │ src/api/app.py            │
+│ ingest → validate       │───────▶│ loads models:/<name>@champion (or
+│ → temporal split        │  gate  │ legacy "Production" stage)│
+│ → fit ColumnAligner +   │ (P1.5) │ GET  /health  /ready       │
+│   ColumnTransformer +   │        │ POST /predict              │
+│   LGBMClassifier        │        │ GET  /metrics (Prometheus) │
+│ → log ONE pyfunc model  │        └──────────────────────────┘
+│   (registers `candidate`)│
+└────────────────────────┘
 ```
 
-## Quickstart (Ubuntu / Windows)
+The critical design point: **training and serving share one fitted `sklearn.Pipeline` object**, logged to MLflow as a single artifact (`src/features/pipeline.py` + `src/modeling/mlflow_wrapper.py`). There is no separate local `feature_meta.json` and no hand-rolled category→int mapping on the serving side — the exact fitted `ColumnAligner` + `ColumnTransformer` that ran at training time also runs inside the API process, so a request can never be scored differently than an equivalent row was during training/validation.
 
-**1. Environment**
+## Quickstart (local-lite, no Docker required)
 
 ```bash
-conda create -n fraudmlops python=3.11
-conda activate fraudmlops
-pip install -r requirements.txt
+python -m venv .venv && source .venv/bin/activate     # Windows: .venv\Scripts\activate
+pip install -r requirements-dev.txt
+
+# 1. Start MLflow locally (sqlite backend, no Docker needed)
+export MLFLOW_TRACKING_URI="sqlite:///$(pwd)/mlflow_db/mlflow.db"   # PowerShell: $env:MLFLOW_TRACKING_URI="sqlite:///$PWD/mlflow_db/mlflow.db"
+
+# 2. Train (synthetic data — no Kaggle download needed)
+python -m src.modeling.train --data-source synthetic --n-synthetic 4000
+
+# 3. Promote the new model from `candidate` to `champion` (gated — see docs/deployment.md)
+python -m src.registry.promote
+
+# 4. Serve
+python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
+
+# 5. Call the API (see "API contract" below)
+curl -s http://localhost:8000/health
+curl -s http://localhost:8000/ready
+curl -s -X POST http://localhost:8000/predict \
+  -H "Content-Type: application/json" \
+  -d '{"records": [{"TransactionAmt": 100.0}]}'
 ```
 
-**2. MLflow server (single volume to avoid permission issues)**
-
-```bash
-docker compose up -d
-```
-
-**3. Data**
+## Quickstart with the real IEEE-CIS dataset
 
 Download the [IEEE-CIS Fraud Detection](https://www.kaggle.com/c/ieee-fraud-detection/data) dataset from Kaggle and place the CSVs into:
 
-- `data/processed/ieee-fraud-detection/train_transaction.csv`
-- `data/processed/ieee-fraud-detection/train_identity.csv`
-- `data/processed/ieee-fraud-detection/test_transaction.csv`
-- `data/processed/ieee-fraud-detection/test_identity.csv`
-
-**4. Train (from repo root)**
-
-```bash
-export PYTHONPATH=.
-python src/train_ieee.py
+```
+data/processed/ieee-fraud-detection/train_transaction.csv
+data/processed/ieee-fraud-detection/train_identity.csv
+data/processed/ieee-fraud-detection/test_transaction.csv
+data/processed/ieee-fraud-detection/test_identity.csv
 ```
 
-**5. Serve**
+Then:
 
 ```bash
-uvicorn src.serve.app:app --host 0.0.0.0 --port 8000
+docker compose up -d mlflow postgres minio     # production-like profile (see docker-compose.yml)
+python -m src.modeling.train --data-source ieee --sample-rows 300000
+python -m src.registry.promote
+python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 ```
 
-**6. Call API**
+`--sample-rows` uses **deterministic, time-span-preserving sampling** (`SAMPLING_STRATEGY=time_ordered` by default), not a `nrows=N` head-of-file read — see `src/data/sampling.py`.
 
-```bash
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{"records":[{"TransactionAmt":1.0}]}'
+## API contract
+
+### `GET /health`
+Liveness only — the process is up. Always `200` once the server has started.
+
+### `GET /ready`
+Readiness — a model is loaded from the registry and can serve predictions. `200` when ready, `503` with an explanatory `detail` when no model is loaded yet (train + promote first).
+
+### `POST /predict`
+
+Request:
+
+```json
+{
+  "records": [
+    { "TransactionAmt": 100.0 }
+  ]
+}
 ```
 
-## 8GB RAM and sampling
+**Every field besides `TransactionAmt` is optional.** The service tolerates, in any combination:
+- missing columns (imputed with the training-time median/most-common value),
+- extra/unknown columns (dropped),
+- reordered columns,
+- categories never seen during training (mapped to an "unknown" code),
+- a single record or a batch (up to `API_MAX_BATCH_SIZE`, default 500).
 
-- Training uses **300,000** transaction rows by default (`SAMPLE_ROWS=300000`) so it fits in 8GB.
-- To improve performance, increase sample size (e.g. `SAMPLE_ROWS=500000`) or use full data if you have more RAM.
+An empty `records` list or malformed JSON returns `422`. A request larger than the configured batch/body limits returns `422`/`413`. If no model is loaded, every endpoint except `/health` returns `503`. Internal errors are never surfaced as raw tracebacks — always a generic `4xx`/`5xx` JSON body.
+
+Response:
+
+```json
+{
+  "predictions": [
+    { "fraud_probability": 0.051, "fraud_prediction": 0, "threshold": 0.057 }
+  ],
+  "model_name": "ieee_fraud_lgbm",
+  "model_version": "1"
+}
+```
+
+`threshold` is the decision threshold selected on the validation set at training time (see `src/modeling/threshold.py`), not a hardcoded `0.5`.
 
 ## Configuration (env)
 
-| Variable               | Default              | Description                    |
-|------------------------|----------------------|--------------------------------|
-| `MLFLOW_TRACKING_URI`  | `http://localhost:5000` | MLflow server URL           |
-| `MODEL_NAME`           | `ieee_fraud_lgbm`    | Registered model name          |
-| `SAMPLE_ROWS`          | `300000`             | Max transaction rows for train |
+All configuration is centralized in `src/config.py`. Key variables (full list in `.env.example`):
+
+| Variable | Default | Description |
+|---|---|---|
+| `MLFLOW_TRACKING_URI` | `http://localhost:5000` | MLflow server URL |
+| `MODEL_NAME` | `ieee_fraud_lgbm` | Registered model name |
+| `CHAMPION_ALIAS` / `CANDIDATE_ALIAS` | `champion` / `candidate` | Registry aliases used for promotion |
+| `SAMPLE_ROWS` | `300000` | Max transaction rows for `--data-source ieee` training |
+| `SAMPLING_STRATEGY` | `time_ordered` | `time_ordered` (deterministic, span-preserving) or `random` |
+| `SPLIT_STRATEGY` | `temporal` | `temporal` (default) or `random` (explicit smoke-test fallback) |
+| `THRESHOLD_STRATEGY` | `best_f1` | `best_f1` \| `target_recall` \| `cost_based` \| `fixed` |
+| `FALSE_NEGATIVE_COST` / `FALSE_POSITIVE_COST` | `25.0` / `1.0` | Used by the `cost_based` threshold strategy |
+| `API_MAX_BATCH_SIZE` | `500` | Max records per `/predict` request |
+| `API_KEY_ENABLED` / `API_KEY` | `false` / unset | Optional API-key auth (disabled by default for local dev) |
+
+## Project layout
+
+See `docs/architecture.md` for a full description. Top level:
+
+```
+src/config.py           single source of truth for all paths/settings
+src/data/                ingest, deterministic sampling, structural validation
+src/features/pipeline.py the shared ColumnAligner + ColumnTransformer
+src/modeling/             temporal split, metrics, threshold selection, training entrypoint
+src/registry/             promote.py (candidate->champion gate), compare.py (model diff report)
+src/api/                  FastAPI service
+src/monitoring/drift.py   reference-vs-batch drift report
+tests/unit, tests/integration
+```
+
+## Running tests
+
+```bash
+pip install -r requirements-dev.txt
+pytest                       # full suite, synthetic fixtures only — no real data needed
+pytest --cov=src --cov-report=term-missing
+```
 
 ## Troubleshooting
 
-- **Artifact permission errors**  
-  If the server previously used a different artifact path (e.g. `/mlruns`), reset the store and artifacts: delete the `mlflow_db` folder and run `docker compose up -d` again. Then re-run training.
-
-- **LightGBM flavor with mlflow-skinny**  
-  If you see missing flavor imports for LightGBM, switch to the full MLflow client: in `requirements.txt` use `mlflow==2.16.2` instead of `mlflow-skinny==2.16.2`.
-
-## Validate end-to-end
-
-```bash
-docker compose up -d
-PYTHONPATH=. python src/train_ieee.py
-uvicorn src.serve.app:app --port 8000
-# In another terminal:
-curl http://localhost:8000/health
-curl -X POST http://localhost:8000/predict -H "Content-Type: application/json" -d '{"records":[{"TransactionAmt":1.0}]}'
-```
+- **"Model not loaded" / `/ready` returns 503`** — train a model and run `python -m src.registry.promote` before starting the API; the service only ever loads the `champion` alias (or, for backward compatibility, the legacy `Production` stage).
+- **Artifact permission errors (Docker profile)** — delete the `mlflow_db` / `minio_data` volumes and re-run `docker compose up -d`.
 
 ## License
 

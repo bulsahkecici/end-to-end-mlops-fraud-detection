@@ -1,0 +1,85 @@
+"""FastAPI inference service for the IEEE-CIS fraud detection model.
+
+Endpoints:
+    GET  /health   - liveness: process is up.
+    GET  /ready    - readiness: a model is loaded and servable.
+    POST /predict  - fraud probability + thresholded decision for one or more records.
+
+The model is loaded exclusively from the MLflow Model Registry at startup
+(see ``src/api/dependencies.py``); there is no local feature_meta.json
+dependency, so training and serving are guaranteed to use the identical
+fitted preprocessing pipeline.
+"""
+from __future__ import annotations
+
+import logging
+from contextlib import asynccontextmanager
+
+import pandas as pd
+from fastapi import Depends, FastAPI, HTTPException
+
+from src.api.dependencies import load_model_into_state, model_state, require_model
+from src.api.middleware import register_middleware, setup_cors
+from src.api.schemas import HealthResponse, PredictionItem, PredictRequest, PredictResponse, ReadyResponse
+from src.config import settings
+from src.logging_config import configure_logging
+
+configure_logging()
+logger = logging.getLogger("src.api")
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    load_model_into_state()
+    yield
+
+
+app = FastAPI(title="IEEE Fraud Detection API", version="1.0.0", lifespan=lifespan)
+setup_cors(app)
+register_middleware(app)
+
+
+@app.get("/health", response_model=HealthResponse)
+def health() -> HealthResponse:
+    return HealthResponse(status="ok")
+
+
+@app.get("/ready", response_model=ReadyResponse)
+def ready() -> ReadyResponse:
+    if not model_state.is_ready:
+        raise HTTPException(
+            status_code=503,
+            detail=f"Model not loaded: {model_state.load_error or 'unknown error'}",
+        )
+    return ReadyResponse(
+        status="ready",
+        model_name=settings.model_name,
+        model_version=model_state.model_version,
+        model_source=model_state.model_source,
+    )
+
+
+@app.post("/predict", response_model=PredictResponse)
+def predict(body: PredictRequest, model=Depends(require_model)) -> PredictResponse:
+    try:
+        df = pd.DataFrame(body.records)
+        output = model.predict(context=None, model_input=df)
+    except HTTPException:
+        raise
+    except Exception as exc:  # noqa: BLE001 - never leak a raw pipeline traceback to the client
+        logger.exception("prediction_failed", extra={"batch_size": len(body.records)})
+        raise HTTPException(status_code=400, detail="Invalid input for prediction") from exc
+
+    predictions = [
+        PredictionItem(
+            fraud_probability=float(row["fraud_probability"]),
+            fraud_prediction=int(row["fraud_prediction"]),
+            threshold=float(row["threshold"]),
+        )
+        for _, row in output.iterrows()
+    ]
+    return PredictResponse(
+        predictions=predictions,
+        model_name=settings.model_name,
+        model_version=model_state.model_version,
+    )

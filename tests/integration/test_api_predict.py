@@ -38,6 +38,20 @@ def test_health_endpoint(promoted_client):
     assert resp.json() == {"status": "ok"}
 
 
+def test_metrics_endpoint_exposes_prometheus_format(promoted_client):
+    client, result = promoted_client
+    client.post("/predict", json={"records": [{"TransactionAmt": 10.0}]})
+
+    resp = client.get("/metrics")
+    assert resp.status_code == 200
+    assert "text/plain" in resp.headers["content-type"]
+    body = resp.text
+    assert "http_requests_total" in body
+    assert "predictions_total" in body
+    assert "model_loaded 1.0" in body
+    assert f'model_version="{result["model_version"]}"' in body
+
+
 def test_ready_endpoint_after_promotion(promoted_client):
     client, result = promoted_client
     resp = client.get("/ready")

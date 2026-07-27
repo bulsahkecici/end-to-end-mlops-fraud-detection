@@ -4,6 +4,7 @@ Endpoints:
     GET  /health   - liveness: process is up.
     GET  /ready    - readiness: a model is loaded and servable.
     POST /predict  - fraud probability + thresholded decision for one or more records.
+    GET  /metrics  - Prometheus metrics.
 
 The model is loaded exclusively from the MLflow Model Registry at startup
 (see ``src/api/dependencies.py``); there is no local feature_meta.json
@@ -17,9 +18,17 @@ import logging
 from contextlib import asynccontextmanager
 
 import pandas as pd
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Response
 
 from src.api.dependencies import load_model_into_state, model_state, require_model
+from src.api.metrics import (
+    CONTENT_TYPE_LATEST,
+    FRAUD_PREDICTIONS_TOTAL,
+    PREDICT_BATCH_SIZE,
+    PREDICTION_EXCEPTIONS_TOTAL,
+    PREDICTIONS_TOTAL,
+    render_latest,
+)
 from src.api.middleware import register_middleware, setup_cors
 from src.api.schemas import (
     HealthResponse,
@@ -66,14 +75,21 @@ def ready() -> ReadyResponse:
     )
 
 
+@app.get("/metrics")
+def metrics() -> Response:
+    return Response(content=render_latest(), media_type=CONTENT_TYPE_LATEST)
+
+
 @app.post("/predict", response_model=PredictResponse)
 def predict(body: PredictRequest, model=Depends(require_model)) -> PredictResponse:
+    PREDICT_BATCH_SIZE.observe(len(body.records))
     try:
         df = pd.DataFrame(body.records)
         output = model.predict(context=None, model_input=df)
     except HTTPException:
         raise
     except Exception as exc:  # noqa: BLE001 - never leak a raw pipeline traceback to the client
+        PREDICTION_EXCEPTIONS_TOTAL.inc()
         logger.exception("prediction_failed", extra={"batch_size": len(body.records)})
         raise HTTPException(status_code=400, detail="Invalid input for prediction") from exc
 
@@ -85,6 +101,8 @@ def predict(body: PredictRequest, model=Depends(require_model)) -> PredictRespon
         )
         for _, row in output.iterrows()
     ]
+    PREDICTIONS_TOTAL.inc(len(predictions))
+    FRAUD_PREDICTIONS_TOTAL.inc(sum(p.fraud_prediction for p in predictions))
     return PredictResponse(
         predictions=predictions,
         model_name=settings.model_name,

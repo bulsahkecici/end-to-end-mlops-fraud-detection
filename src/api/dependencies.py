@@ -87,12 +87,16 @@ def resolve_and_load_model() -> tuple[object, str, str]:
 
 
 def load_model_into_state() -> None:
+    from src.api.metrics import MODEL_INFO, MODEL_LOADED
+
     try:
         model, version, source = resolve_and_load_model()
         model_state.model = model
         model_state.model_version = version
         model_state.model_source = source
         model_state.load_error = None
+        MODEL_LOADED.set(1)
+        MODEL_INFO.labels(model_name=settings.model_name, model_version=version).set(1)
         logger.info(
             "model_loaded",
             extra={"model_name": settings.model_name, "model_version": version},
@@ -100,6 +104,7 @@ def load_model_into_state() -> None:
     except Exception as exc:  # noqa: BLE001 - intentionally broad: startup must never crash the app
         model_state.model = None
         model_state.load_error = str(exc)
+        MODEL_LOADED.set(0)
         logger.warning("model_load_failed: %s", exc)
 
 

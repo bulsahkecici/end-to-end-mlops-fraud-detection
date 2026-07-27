@@ -140,18 +140,23 @@ def make_synthetic_transactions(n: int = 2000, seed: int = 42, fraud_rate: float
     email_domains = np.array(["gmail.com", "yahoo.com", "hotmail.com", "outlook.com", None])
     m1_vals = np.array(["T", "F", None])
 
+    transaction_amt = rng.gamma(2.0, 50.0, size=n).round(2)
+    product_cd = rng.choice(product_codes, size=n)
+    card6 = rng.choice(card6_vals, size=n)
+    p_emaildomain = rng.choice(email_domains, size=n)
+    c1 = rng.poisson(3, size=n).astype("float64")
+
     df = pd.DataFrame(
         {
             "TransactionID": np.arange(1, n + 1),
-            "isFraud": rng.binomial(1, fraud_rate, size=n).astype("int64"),
             "TransactionDT": np.sort(rng.integers(86_400, 86_400 * 200, size=n)),
-            "TransactionAmt": rng.gamma(2.0, 50.0, size=n).round(2),
-            "ProductCD": rng.choice(product_codes, size=n),
+            "TransactionAmt": transaction_amt,
+            "ProductCD": product_cd,
             "card4": rng.choice(card4_vals, size=n),
-            "card6": rng.choice(card6_vals, size=n),
-            "P_emaildomain": rng.choice(email_domains, size=n),
+            "card6": card6,
+            "P_emaildomain": p_emaildomain,
             "M1": rng.choice(m1_vals, size=n),
-            "C1": rng.poisson(3, size=n).astype("float64"),
+            "C1": c1,
             "C2": rng.poisson(2, size=n).astype("float64"),
             "D1": rng.exponential(10, size=n).round(1),
             "D2": rng.exponential(5, size=n).round(1),
@@ -159,6 +164,24 @@ def make_synthetic_transactions(n: int = 2000, seed: int = 42, fraud_rate: float
             "V2": rng.normal(size=n).round(3),
         }
     )
+
+    # Fraud correlates with a handful of features (higher amount, ProductCD
+    # 'C', credit cards, missing email domain, high C1) plus noise, rather
+    # than being independent of every feature. Without a real signal, no
+    # trained model could ever clear a meaningful PR-AUC/recall gate, which
+    # would make promotion gating (src/registry/promote.py) impossible to
+    # exercise against synthetic data.
+    amt_z = (transaction_amt - transaction_amt.mean()) / (transaction_amt.std() + 1e-9)
+    risk_score = (
+        0.8 * amt_z
+        + 1.6 * (product_cd == "C").astype(float)
+        + 1.1 * (card6 == "credit").astype(float)
+        + 1.3 * pd.isna(p_emaildomain).astype(float)
+        + 0.6 * (c1 > np.median(c1)).astype(float)
+        + rng.normal(0, 1.3, size=n)
+    )
+    fraud_threshold = np.quantile(risk_score, 1 - fraud_rate)
+    df["isFraud"] = (risk_score >= fraud_threshold).astype("int64")
 
     # Inject realistic missingness so imputation is actually exercised.
     for col in ["D1", "D2", "V1", "V2", "C2"]:

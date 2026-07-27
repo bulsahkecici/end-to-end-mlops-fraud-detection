@@ -10,6 +10,10 @@ x-api-env-common: &api-env-common
   API_KEY: ${API_KEY:-}
   CORS_ALLOW_ORIGINS: ${CORS_ALLOW_ORIGINS:-*}
 
+x-nginx-env-common: &nginx-env-common
+  RATE_LIMIT_RPS: ${RATE_LIMIT_RPS:-10}
+  RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-20}
+
 services:
   # ---------------------------------------------------------------------
   # local-lite profile: sqlite backend, local filesystem artifact store.
@@ -44,6 +48,26 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow:5000
     depends_on:
       mlflow:
+        condition: service_healthy
+    networks: [mlops]
+    restart: unless-stopped
+
+  # Rate-limited front door: put this in front of `api` for anything
+  # beyond trusted-network local dev (see docs/deployment.md for why rate
+  # limiting lives here rather than in the FastAPI app). Not required for
+  # local development — hit `api` on :8000 directly if you don't need it.
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["local-lite"]
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      <<: *nginx-env-common
+      UPSTREAM: api:8000
+    depends_on:
+      api:
         condition: service_healthy
     networks: [mlops]
     restart: unless-stopped
@@ -138,6 +162,22 @@ services:
       MLFLOW_TRACKING_URI: http://mlflow-prod:5000
     depends_on:
       mlflow-prod:
+        condition: service_healthy
+    networks: [mlops]
+    restart: unless-stopped
+
+  nginx-prod:
+    image: nginx:1.27-alpine
+    profiles: ["production-like"]
+    ports:
+      - "8080:80"
+    volumes:
+      - ./deploy/nginx/nginx.conf.template:/etc/nginx/templates/default.conf.template:ro
+    environment:
+      <<: *nginx-env-common
+      UPSTREAM: api-prod:8000
+    depends_on:
+      api-prod:
         condition: service_healthy
     networks: [mlops]
     restart: unless-stopped

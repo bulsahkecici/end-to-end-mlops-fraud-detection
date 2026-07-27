@@ -14,6 +14,9 @@ docker compose --profile local-lite up -d      # or: make docker-up
 - `mlflow`: sqlite backend store + local filesystem artifact store
   (`./mlflow_db`).
 - `api`: builds from `Dockerfile.api`, depends on `mlflow` being healthy.
+- `nginx`: rate-limited reverse proxy in front of `api`, published on
+  `:8080` (see "Rate limiting" below). `api` itself stays published on
+  `:8000` too, for direct/debug access.
 
 ### `production-like` (Postgres + MinIO)
 
@@ -28,6 +31,7 @@ docker compose --profile production-like up -d
 - `mlflow-prod`: MLflow server pointed at Postgres + MinIO.
 - `api-prod`: same image as `api`, points `MLFLOW_TRACKING_URI` at
   `mlflow-prod`.
+- `nginx-prod`: same rate-limiting proxy as `nginx`, in front of `api-prod`.
 
 Compose refuses to start `production-like` if `POSTGRES_PASSWORD`,
 `MINIO_ROOT_USER`, or `MINIO_ROOT_PASSWORD` aren't set (via `${VAR:?...}`)
@@ -75,16 +79,22 @@ host; each additional worker costs roughly one model's worth of RAM.
   is whatever the reverse proxy / load balancer in front of the API
   enforces (e.g. an nginx/ALB idle timeout). If you deploy without a
   proxy, consider adding `uvicorn --timeout-keep-alive` tuning.
-- **Rate limiting: not implemented, by design for this pass.** An
-  in-process, per-worker rate limiter (e.g. a simple token bucket in
-  middleware) would give an incorrect global rate limit as soon as
-  `--workers > 1`, since each worker would enforce its own independent
-  counter. A correct implementation needs a shared store (Redis) that this
-  project doesn't otherwise depend on, or rate limiting at the reverse
-  proxy / API gateway layer (nginx `limit_req`, an API gateway, or a cloud
-  load balancer) — which is also where it belongs operationally, ahead of
-  the batch/body-size limits already enforced in-app. Recommended follow-up
-  if this API is exposed outside a trusted network.
+- **Rate limiting**: implemented at the reverse-proxy layer
+  (`deploy/nginx/nginx.conf.template`), not in the FastAPI app itself — an
+  in-process, per-worker limiter would enforce a separate, incorrect
+  counter per uvicorn worker as soon as `--workers > 1` (each worker sees
+  only its own share of requests, so the effective limit would silently
+  scale with worker count instead of being a real ceiling). nginx enforces
+  one shared limit per client IP (`limit_req_zone $binary_remote_addr`)
+  across the whole upstream, ahead of the batch/body-size limits already
+  enforced in-app. Configurable via `RATE_LIMIT_RPS` (steady-state
+  requests/sec/IP, default 10) and `RATE_LIMIT_BURST` (extra burst
+  capacity before `429`s start, default 20) in `.env`. `/health`, `/ready`,
+  `/metrics` are exempted so monitoring probes are never throttled.
+  Verified: firing 40 rapid `/predict` requests through `nginx` on
+  defaults returns `200` for the first ~30 (burst + one tick of steady
+  rate) then `429 Too Many Requests` for the rest; the same burst against
+  `/health` stays `200` throughout.
 - **Dependency vulnerabilities**: see the "ci: add drift monitoring, patch
   known dependency vulnerabilities" commit message for the current
   `pip-audit` status. `mlflow` and `pyarrow` both have known CVEs only

@@ -51,14 +51,42 @@ jobs:
   docker:
     runs-on: ubuntu-latest
     needs: lint-type-test
+    env:
+      # Dummy values so `docker compose config` can parse the
+      # production-like profile's required vars — never real secrets.
+      POSTGRES_PASSWORD: ci-only-placeholder
+      MINIO_ROOT_USER: ci-only-placeholder
+      MINIO_ROOT_PASSWORD: ci-only-placeholder
     steps:
       - uses: actions/checkout@v4
 
-      - name: Validate docker compose config
-        run: docker compose config
+      - name: Validate docker compose config (both profiles)
+        run: |
+          docker compose --profile local-lite config
+          docker compose --profile production-like config
 
       - name: Build API image
         run: docker build -f Dockerfile.api -t ieee-fraud-api:ci .
+
+      - name: Bring up local-lite stack (mlflow + api + nginx)
+        # `docker compose up` blocks on each service's `depends_on:
+        # condition: service_healthy` before returning, so mlflow and api
+        # are already healthy by the time this command exits — only nginx
+        # (no HEALTHCHECK of its own) needs a short reachability retry.
+        run: |
+          docker compose --profile local-lite build api
+          docker compose --profile local-lite up -d mlflow api nginx
+          for i in $(seq 1 30); do curl -sf http://localhost:8080/health && break; sleep 2; done
+
+      - name: Smoke-test nginx rate limiting
+        run: |
+          codes=$(for i in $(seq 1 40); do curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8080/predict -H "Content-Type: application/json" -d '{"records":[{"TransactionAmt":1.0}]}'; done)
+          echo "$codes" | sort | uniq -c
+          echo "$codes" | grep -q 429 || { echo "expected at least one 429 from rate limiting, got none"; exit 1; }
+
+      - name: Tear down
+        if: always()
+        run: docker compose --profile local-lite down -v
 
   e2e-smoke:
     runs-on: ubuntu-latest

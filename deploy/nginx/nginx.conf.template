@@ -1,0 +1,41 @@
+# Templated by the official nginx image's docker-entrypoint envsubst step
+# (only variables that are actual container env vars get substituted —
+# nginx's own runtime variables like $host/$remote_addr are untouched,
+# since they aren't set as environment variables here).
+#
+# Rate limiting lives here, in front of the API, rather than in the
+# FastAPI app itself: an in-process limiter would enforce a separate,
+# incorrect counter per uvicorn worker (see docs/deployment.md). nginx
+# enforces one shared limit per client IP across the whole upstream.
+
+limit_req_zone $binary_remote_addr zone=api_limit:10m rate=${RATE_LIMIT_RPS}r/s;
+
+server {
+    listen 80;
+
+    # Liveness/readiness are not rate-limited — monitoring/orchestration
+    # probes should never be starved by API traffic.
+    location = /health {
+        proxy_pass http://${UPSTREAM}/health;
+    }
+
+    location = /ready {
+        proxy_pass http://${UPSTREAM}/ready;
+    }
+
+    location = /metrics {
+        proxy_pass http://${UPSTREAM}/metrics;
+    }
+
+    location / {
+        limit_req zone=api_limit burst=${RATE_LIMIT_BURST} nodelay;
+        limit_req_status 429;
+
+        proxy_pass http://${UPSTREAM};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 4m;
+    }
+}

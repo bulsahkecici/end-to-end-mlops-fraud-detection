@@ -66,11 +66,17 @@ data/processed/ieee-fraud-detection/test_identity.csv
 Then:
 
 ```bash
-docker compose up -d mlflow postgres minio     # production-like profile (see docker-compose.yml)
+cp .env.example .env   # docker compose needs this to parse the file regardless of profile
+docker compose --profile local-lite up -d          # or --profile production-like, see docs/deployment.md
 python -m src.modeling.train --data-source ieee --sample-rows 300000
 python -m src.registry.promote
-python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
+python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000   # or just use the `api`/`api-prod` container
 ```
+
+The `docker compose` commands above also start `nginx`, a rate-limited
+reverse proxy in front of the API on `http://localhost:8080` (see
+"Rate limiting" in `docs/deployment.md`) — hit that instead of `:8000`
+directly if you want the rate limit enforced.
 
 `--sample-rows` uses **deterministic, time-span-preserving sampling** (`SAMPLING_STRATEGY=time_ordered` by default), not a `nrows=N` head-of-file read — see `src/data/sampling.py`.
 
@@ -133,6 +139,7 @@ All configuration is centralized in `src/config.py`. Key variables (full list in
 | `FALSE_NEGATIVE_COST` / `FALSE_POSITIVE_COST` | `25.0` / `1.0` | Used by the `cost_based` threshold strategy |
 | `API_MAX_BATCH_SIZE` | `500` | Max records per `/predict` request |
 | `API_KEY_ENABLED` / `API_KEY` | `false` / unset | Optional API-key auth (disabled by default for local dev) |
+| `RATE_LIMIT_RPS` / `RATE_LIMIT_BURST` | `10` / `20` | nginx reverse-proxy rate limit (requests/sec/IP, burst) — see `docs/deployment.md` |
 
 ## Project layout
 

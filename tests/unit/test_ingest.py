@@ -28,8 +28,12 @@ def test_load_test_has_no_target(fixture_data_dir):
 
 
 def test_sample_rows_is_deterministic(fixture_data_dir):
-    df1 = load_train(data_dir=fixture_data_dir, sample_rows=20, sampling_strategy="time_ordered", seed=1)
-    df2 = load_train(data_dir=fixture_data_dir, sample_rows=20, sampling_strategy="time_ordered", seed=1)
+    df1 = load_train(
+        data_dir=fixture_data_dir, sample_rows=20, sampling_strategy="time_ordered", seed=1
+    )
+    df2 = load_train(
+        data_dir=fixture_data_dir, sample_rows=20, sampling_strategy="time_ordered", seed=1
+    )
     assert len(df1) == 20
     pd_assert_frame_equal_ids(df1, df2)
 
@@ -41,7 +45,9 @@ def pd_assert_frame_equal_ids(df1, df2):
 def test_sample_rows_preserves_time_span(fixture_data_dir):
     """time_ordered sampling should not just take the head of the file."""
     full = load_train(data_dir=fixture_data_dir, sample_rows=None)
-    sampled = load_train(data_dir=fixture_data_dir, sample_rows=15, sampling_strategy="time_ordered", seed=0)
+    sampled = load_train(
+        data_dir=fixture_data_dir, sample_rows=15, sampling_strategy="time_ordered", seed=0
+    )
     assert sampled["TransactionDT"].max() > full["TransactionDT"].quantile(0.5)
 
 

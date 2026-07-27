@@ -3,6 +3,7 @@
 Expects CSV files from Kaggle: train_transaction.csv, train_identity.csv,
 test_transaction.csv, test_identity.csv in ``settings.ieee_data_dir``.
 """
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -126,7 +127,9 @@ SYNTHETIC_NUMERIC_COLS = ["TransactionAmt", "C1", "C2", "D1", "D2", "V1", "V2"]
 SYNTHETIC_CATEGORICAL_COLS = ["ProductCD", "card4", "card6", "P_emaildomain", "M1"]
 
 
-def make_synthetic_transactions(n: int = 2000, seed: int = 42, fraud_rate: float = 0.05) -> pd.DataFrame:
+def make_synthetic_transactions(
+    n: int = 2000, seed: int = 42, fraud_rate: float = 0.05
+) -> pd.DataFrame:
     """Generate a small synthetic dataset shaped like IEEE-CIS transactions.
 
     Used for unit tests, CI, and the ``train-smoke`` command so the pipeline

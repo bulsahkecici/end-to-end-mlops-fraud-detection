@@ -15,7 +15,6 @@ from src.modeling.threshold import (
 from src.modeling.train import run_training
 from src.modeling.validation import random_split, split_data, temporal_split
 
-
 # --- split strategies -----------------------------------------------------
 
 
@@ -66,7 +65,16 @@ def test_compute_metrics_keys_and_ranges():
     y_true = rng.binomial(1, 0.1, 200)
     y_proba = rng.random(200)
     metrics = compute_metrics(y_true, y_proba, threshold=0.5)
-    for key in ("roc_auc", "pr_auc", "precision", "recall", "f1", "log_loss", "brier_score", "fraud_rate"):
+    for key in (
+        "roc_auc",
+        "pr_auc",
+        "precision",
+        "recall",
+        "f1",
+        "log_loss",
+        "brier_score",
+        "fraud_rate",
+    ):
         assert key in metrics
     assert 0.0 <= metrics["precision"] <= 1.0
     assert 0.0 <= metrics["recall"] <= 1.0
@@ -136,7 +144,9 @@ def test_run_training_synthetic_end_to_end(mlflow_tmp_uri):
     assert result["run_id"]
     assert result["model_version"] == "1"
     assert 0.0 <= result["threshold"] <= 1.0
-    assert 0.0 <= result["val_metrics"]["roc_auc"] <= 1.0 or np.isnan(result["val_metrics"]["roc_auc"])
+    assert 0.0 <= result["val_metrics"]["roc_auc"] <= 1.0 or np.isnan(
+        result["val_metrics"]["roc_auc"]
+    )
     assert result["feature_schema"]["numeric_cols"]
     assert result["feature_schema"]["categorical_cols"]
 

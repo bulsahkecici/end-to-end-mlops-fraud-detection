@@ -18,6 +18,7 @@ Sampling only ever touches row *indices* — the CSV is still read via
 ``pandas.read_csv(..., skiprows=...)`` so unselected rows are never
 materialized in memory.
 """
+
 from __future__ import annotations
 
 import numpy as np

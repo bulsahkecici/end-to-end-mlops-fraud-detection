@@ -1,4 +1,51 @@
+[project]
+name = "ieee-fraud-mlops"
+version = "0.1.0"
+description = "End-to-end MLOps demo: IEEE-CIS fraud detection with MLflow + FastAPI."
+requires-python = ">=3.11,<3.13"
+
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-ra"
+
+[tool.coverage.run]
+source = ["src"]
+omit = ["src/*/__init__.py"]
+
+[tool.coverage.report]
+fail_under = 75
+show_missing = true
+exclude_lines = [
+    "pragma: no cover",
+    "if __name__ == .__main__.:",
+    "raise NotImplementedError",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+extend-exclude = ["tests/fixtures", ".venv"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]
+ignore = ["B008"]  # FastAPI's Depends()/Field() default-argument pattern is intentional
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["E501"]
+
+[tool.black]
+line-length = 100
+target-version = ["py311"]
+
+[tool.mypy]
+python_version = "3.11"
+ignore_missing_imports = true
+warn_unused_ignores = true
+warn_redundant_casts = true
+no_implicit_optional = true
+exclude = ["tests/", "\\.venv/"]
+
+[[tool.mypy.overrides]]
+module = "src.modeling.train"
+disallow_untyped_defs = false

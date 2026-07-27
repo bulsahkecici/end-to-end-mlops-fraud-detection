@@ -13,6 +13,7 @@ custom :class:`ColumnAligner` step) is a single fitted object, it can be
 pickled, logged to MLflow as one artifact, and produces byte-for-byte
 identical transforms at train and inference time.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -94,11 +95,13 @@ class ColumnAligner(BaseEstimator, TransformerMixin):
     (imputers, encoder, classifier) always sees a stable, predictable shape.
     """
 
-    def __init__(self, numeric_cols: list[str] | None = None, categorical_cols: list[str] | None = None):
+    def __init__(
+        self, numeric_cols: list[str] | None = None, categorical_cols: list[str] | None = None
+    ):
         self.numeric_cols = numeric_cols
         self.categorical_cols = categorical_cols
 
-    def fit(self, X: pd.DataFrame, y=None) -> "ColumnAligner":
+    def fit(self, X: pd.DataFrame, y=None) -> ColumnAligner:
         self.numeric_cols_ = list(self.numeric_cols or [])
         self.categorical_cols_ = list(self.categorical_cols or [])
         self.feature_names_in_ = self.numeric_cols_ + self.categorical_cols_
@@ -155,7 +158,9 @@ def build_full_pipeline(schema: FeatureSchema, classifier) -> Pipeline:
     same either way since it simply chains each step's ``transform``/
     ``predict`` in order.
     """
-    aligner = ColumnAligner(numeric_cols=schema.numeric_cols, categorical_cols=schema.categorical_cols)
+    aligner = ColumnAligner(
+        numeric_cols=schema.numeric_cols, categorical_cols=schema.categorical_cols
+    )
     preprocessor = build_preprocessor(schema)
     return Pipeline(
         steps=[

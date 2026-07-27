@@ -10,6 +10,7 @@ The model is loaded exclusively from the MLflow Model Registry at startup
 dependency, so training and serving are guaranteed to use the identical
 fitted preprocessing pipeline.
 """
+
 from __future__ import annotations
 
 import logging
@@ -20,7 +21,13 @@ from fastapi import Depends, FastAPI, HTTPException
 
 from src.api.dependencies import load_model_into_state, model_state, require_model
 from src.api.middleware import register_middleware, setup_cors
-from src.api.schemas import HealthResponse, PredictionItem, PredictRequest, PredictResponse, ReadyResponse
+from src.api.schemas import (
+    HealthResponse,
+    PredictionItem,
+    PredictRequest,
+    PredictResponse,
+    ReadyResponse,
+)
 from src.config import settings
 from src.logging_config import configure_logging
 

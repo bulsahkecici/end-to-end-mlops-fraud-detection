@@ -7,6 +7,7 @@ a local feature_meta.json — all preprocessing lives inside the logged
 pipeline itself (see ``src/features/pipeline.py`` and
 ``src/modeling/mlflow_wrapper.py``).
 """
+
 from __future__ import annotations
 
 import logging
@@ -28,7 +29,7 @@ class ModelState:
     """Mutable holder for the currently loaded model, set once at startup."""
 
     def __init__(self) -> None:
-        self.model = None
+        self.model: object | None = None
         self.model_version: str | None = None
         self.model_source: str | None = None
         self.load_error: str | None = None
@@ -69,7 +70,7 @@ def resolve_and_load_model() -> tuple[object, str, str]:
                 f"No model version found for '{settings.model_name}' under alias "
                 f"'{settings.champion_alias}' or stage '{settings.legacy_stage_fallback}'. "
                 "Train a model and run `python -m src.registry.promote` first."
-            )
+            ) from None
         uri = f"models:/{settings.model_name}/{settings.legacy_stage_fallback}"
         version, source = str(latest[0].version), f"stage:{settings.legacy_stage_fallback}"
 

@@ -7,15 +7,16 @@ This wrapper calls ``predict_proba`` internally and returns both the
 probability and the thresholded decision, so training and serving always
 agree on what "predict" means for this model.
 """
+
 from __future__ import annotations
 
 import json
 
-import mlflow.pyfunc
 import pandas as pd
+from mlflow.pyfunc import PythonModel
 
 
-class FraudModelWrapper(mlflow.pyfunc.PythonModel):
+class FraudModelWrapper(PythonModel):
     """MLflow PythonModel wrapping a fitted sklearn Pipeline + decision threshold."""
 
     def load_context(self, context) -> None:
@@ -26,7 +27,9 @@ class FraudModelWrapper(mlflow.pyfunc.PythonModel):
             self.metadata = json.load(f)
         self.default_threshold = float(self.metadata.get("threshold", 0.5))
 
-    def predict(self, context, model_input: pd.DataFrame, params: dict | None = None) -> pd.DataFrame:
+    def predict(
+        self, context, model_input: pd.DataFrame, params: dict | None = None
+    ) -> pd.DataFrame:
         if not isinstance(model_input, pd.DataFrame):
             model_input = pd.DataFrame(model_input)
         threshold = self.default_threshold

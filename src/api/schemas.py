@@ -1,4 +1,5 @@
 """Pydantic request/response schemas for the fraud-detection API."""
+
 from __future__ import annotations
 
 from typing import Any

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import mlflow
 import pytest
+from mlflow.exceptions import MlflowException
 
 from src.config import settings
 from src.modeling.train import run_training
@@ -34,7 +35,7 @@ def test_promote_blocks_when_pr_auc_gate_fails(mlflow_tmp_uri, monkeypatch):
 
     mlflow.set_tracking_uri(mlflow_tmp_uri)
     client = mlflow.MlflowClient()
-    with pytest.raises(Exception):
+    with pytest.raises(MlflowException):
         client.get_model_version_by_alias(settings.model_name, settings.champion_alias)
 
 
@@ -58,7 +59,9 @@ def test_promote_no_candidate_returns_clean_failure(mlflow_tmp_uri):
 
 
 def test_compare_with_no_models_reports_no_candidate(mlflow_tmp_uri):
-    report = compare_candidate_vs_champion(model_name="never_trained_model", tracking_uri=mlflow_tmp_uri)
+    report = compare_candidate_vs_champion(
+        model_name="never_trained_model", tracking_uri=mlflow_tmp_uri
+    )
     assert report["decision"] == "no_candidate"
     assert report["candidate"] is None
     assert report["champion"] is None
@@ -81,7 +84,9 @@ def test_compare_reports_threshold_and_metric_diffs(mlflow_tmp_uri, monkeypatch)
     run_training(data_source="synthetic", n_synthetic=1500, seed=5, tracking_uri=mlflow_tmp_uri)
     run_promotion_checks(tracking_uri=mlflow_tmp_uri)  # promotes v1 to champion
 
-    run_training(data_source="synthetic", n_synthetic=1500, seed=6, tracking_uri=mlflow_tmp_uri)  # v2 -> candidate
+    run_training(
+        data_source="synthetic", n_synthetic=1500, seed=6, tracking_uri=mlflow_tmp_uri
+    )  # v2 -> candidate
 
     report = compare_candidate_vs_champion(tracking_uri=mlflow_tmp_uri)
     assert report["champion"] is not None

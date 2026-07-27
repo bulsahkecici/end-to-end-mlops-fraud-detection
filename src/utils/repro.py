@@ -1,4 +1,5 @@
 """Reproducibility helpers: global seeding and run metadata capture."""
+
 from __future__ import annotations
 
 import hashlib
@@ -23,9 +24,11 @@ def set_global_seed(seed: int) -> None:
 def get_git_info(project_root: Path) -> dict:
     def _run(cmd: list[str]) -> str | None:
         try:
-            return subprocess.check_output(
-                cmd, cwd=project_root, stderr=subprocess.DEVNULL
-            ).decode().strip()
+            return (
+                subprocess.check_output(cmd, cwd=project_root, stderr=subprocess.DEVNULL)
+                .decode()
+                .strip()
+            )
         except Exception:
             return None
 

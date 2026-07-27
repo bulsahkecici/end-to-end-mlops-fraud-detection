@@ -11,21 +11,23 @@ Supported strategies:
 Thresholds must always be selected on the validation set; the test set is
 reserved for a single final, unbiased evaluation.
 """
+
 from __future__ import annotations
 
 import numpy as np
+from numpy.typing import ArrayLike
 from sklearn.metrics import confusion_matrix, precision_recall_curve
 
 VALID_STRATEGIES = {"fixed", "best_f1", "target_recall", "cost_based"}
 
 
-def expected_cost(y_true: np.ndarray, y_pred: np.ndarray, fn_cost: float, fp_cost: float) -> float:
+def expected_cost(y_true: ArrayLike, y_pred: ArrayLike, fn_cost: float, fp_cost: float) -> float:
     """Total expected cost = (#false negatives * fn_cost) + (#false positives * fp_cost)."""
     tn, fp, fn, tp = confusion_matrix(y_true, y_pred, labels=[0, 1]).ravel()
     return float(fn * fn_cost + fp * fp_cost)
 
 
-def find_best_f1_threshold(y_true: np.ndarray, y_proba: np.ndarray) -> float:
+def find_best_f1_threshold(y_true: ArrayLike, y_proba: ArrayLike) -> float:
     precisions, recalls, thresholds = precision_recall_curve(y_true, y_proba)
     if len(thresholds) == 0:
         return 0.5
@@ -34,7 +36,9 @@ def find_best_f1_threshold(y_true: np.ndarray, y_proba: np.ndarray) -> float:
     return float(thresholds[best_idx])
 
 
-def find_target_recall_threshold(y_true: np.ndarray, y_proba: np.ndarray, target_recall: float) -> float:
+def find_target_recall_threshold(
+    y_true: ArrayLike, y_proba: ArrayLike, target_recall: float
+) -> float:
     """Highest threshold that still achieves recall >= target_recall (maximizes precision)."""
     precisions, recalls, thresholds = precision_recall_curve(y_true, y_proba)
     if len(thresholds) == 0:
@@ -48,16 +52,17 @@ def find_target_recall_threshold(y_true: np.ndarray, y_proba: np.ndarray, target
 
 
 def find_cost_based_threshold(
-    y_true: np.ndarray, y_proba: np.ndarray, fn_cost: float, fp_cost: float
+    y_true: ArrayLike, y_proba: ArrayLike, fn_cost: float, fp_cost: float
 ) -> tuple[float, float]:
-    candidates = np.unique(np.clip(y_proba, 0.0, 1.0))
+    y_proba_arr = np.asarray(y_proba)
+    candidates = np.unique(np.clip(y_proba_arr, 0.0, 1.0))
     if len(candidates) == 0:
         return 0.5, float("inf")
     if len(candidates) > 200:
         candidates = np.quantile(candidates, np.linspace(0, 1, 200))
     best_threshold, best_cost = 0.5, float("inf")
     for t in candidates:
-        y_pred = (y_proba >= t).astype(int)
+        y_pred = (y_proba_arr >= t).astype(int)
         cost = expected_cost(y_true, y_pred, fn_cost, fp_cost)
         if cost < best_cost:
             best_cost, best_threshold = cost, float(t)
@@ -65,8 +70,8 @@ def find_cost_based_threshold(
 
 
 def select_threshold(
-    y_true: np.ndarray,
-    y_proba: np.ndarray,
+    y_true: ArrayLike,
+    y_proba: ArrayLike,
     strategy: str,
     fixed_threshold: float = 0.5,
     target_recall: float = 0.80,
@@ -75,7 +80,9 @@ def select_threshold(
 ) -> dict:
     """Select a decision threshold on validation data and return it with context."""
     if strategy not in VALID_STRATEGIES:
-        raise ValueError(f"Unknown threshold_strategy={strategy!r}, expected one of {VALID_STRATEGIES}")
+        raise ValueError(
+            f"Unknown threshold_strategy={strategy!r}, expected one of {VALID_STRATEGIES}"
+        )
 
     if strategy == "fixed":
         threshold = float(fixed_threshold)
@@ -86,7 +93,7 @@ def select_threshold(
     else:  # cost_based
         threshold, _ = find_cost_based_threshold(y_true, y_proba, fn_cost, fp_cost)
 
-    y_pred = (y_proba >= threshold).astype(int)
+    y_pred = (np.asarray(y_proba) >= threshold).astype(int)
     cost = expected_cost(y_true, y_pred, fn_cost, fp_cost)
     return {
         "strategy": strategy,

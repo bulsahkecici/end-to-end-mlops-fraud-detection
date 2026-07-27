@@ -6,6 +6,7 @@ This is the core regression test for the training/serving parity bug the
 project used to have (LightGBM-native categorical dtype at train time vs. a
 hand-rolled integer mapping at serve time).
 """
+
 from __future__ import annotations
 
 import mlflow

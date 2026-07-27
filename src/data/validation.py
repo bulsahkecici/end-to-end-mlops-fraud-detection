@@ -5,6 +5,7 @@ loudly when the input CSVs don't look like what the rest of the pipeline
 expects, instead of letting a malformed file silently propagate into
 training or inference.
 """
+
 from __future__ import annotations
 
 import pandas as pd

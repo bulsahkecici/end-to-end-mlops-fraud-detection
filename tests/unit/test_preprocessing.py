@@ -39,7 +39,7 @@ def test_infer_schema_splits_numeric_and_categorical(raw_train_df):
 
 def test_infer_schema_never_touches_target(raw_train_df):
     # Always-drop cols must never leak into the schema even if present.
-    assert ALWAYS_DROP_COLS == {"TransactionID", "isFraud"}
+    assert {"TransactionID", "isFraud"} == ALWAYS_DROP_COLS
 
 
 def test_column_aligner_imputes_missing_numeric_and_categorical(raw_train_df):
@@ -105,7 +105,10 @@ def test_single_and_multi_record_consistency(raw_train_df):
 
     single = pd.DataFrame([{"amount": 42.0, "count": 3.0, "category": "a"}])
     batch = pd.DataFrame(
-        [{"amount": 42.0, "count": 3.0, "category": "a"}, {"amount": 5.0, "count": 1.0, "category": "b"}]
+        [
+            {"amount": 42.0, "count": 3.0, "category": "a"},
+            {"amount": 5.0, "count": 1.0, "category": "b"},
+        ]
     )
     single_t = preprocessor.transform(aligner.transform(single))
     batch_t = preprocessor.transform(aligner.transform(batch))
@@ -121,7 +124,9 @@ def test_preprocessor_fit_only_uses_given_data_not_global_state(raw_train_df):
     aligner = ColumnAligner(schema.numeric_cols, schema.categorical_cols).fit(train_subset)
     preprocessor = build_preprocessor(schema)
     preprocessor.fit(aligner.transform(train_subset))
-    median_from_subset = preprocessor.named_transformers_["num"].named_steps["imputer"].statistics_[0]
+    median_from_subset = (
+        preprocessor.named_transformers_["num"].named_steps["imputer"].statistics_[0]
+    )
 
     # Median of the first 3 'amount' values (10.0, NaN, 30.0) -> median of [10, 30] = 20
     assert median_from_subset == pytest.approx(20.0)

@@ -11,6 +11,7 @@ Random stratified splitting is kept only as an explicit fallback for quick
 smoke tests where temporal ordering doesn't matter (e.g. tiny synthetic
 data).
 """
+
 from __future__ import annotations
 
 import pandas as pd
@@ -66,7 +67,7 @@ def split_data(
     test_ratio: float,
     seed: int,
     time_col: str = TIME_COL,
-) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame]:
+) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Split raw data into train/val/test according to ``strategy``.
 
     Returns (train, val, test) with original index preserved from the

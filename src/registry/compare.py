@@ -4,11 +4,12 @@ Uses the metrics already recorded on each version's MLflow training run
 (rather than re-scoring on raw data) so this can run anywhere with registry
 access, independent of the training dataset being present.
 """
+
 from __future__ import annotations
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import mlflow
@@ -20,7 +21,7 @@ logger = logging.getLogger(__name__)
 COMPARED_METRICS = ["roc_auc", "pr_auc", "recall", "precision", "f1", "log_loss", "brier_score"]
 
 
-def _model_version_info(client: "mlflow.MlflowClient", model_name: str, alias: str) -> dict | None:
+def _model_version_info(client: mlflow.MlflowClient, model_name: str, alias: str) -> dict | None:
     try:
         mv = client.get_model_version_by_alias(model_name, alias)
     except Exception:
@@ -37,7 +38,9 @@ def _model_version_info(client: "mlflow.MlflowClient", model_name: str, alias: s
     }
 
 
-def compare_candidate_vs_champion(model_name: str | None = None, tracking_uri: str | None = None) -> dict:
+def compare_candidate_vs_champion(
+    model_name: str | None = None, tracking_uri: str | None = None
+) -> dict:
     """Build a full comparison report; does not mutate the registry."""
     model_name = model_name or settings.model_name
     mlflow.set_tracking_uri(tracking_uri or settings.mlflow_tracking_uri)
@@ -63,24 +66,20 @@ def compare_candidate_vs_champion(model_name: str | None = None, tracking_uri: s
         diff["threshold"] = threshold_diff
 
         pr_auc_diff = diff.get("val_pr_auc")
-        if pr_auc_diff is not None and pr_auc_diff >= -settings.max_champion_regression:
+        tolerance = settings.max_champion_regression
+        if pr_auc_diff is not None and pr_auc_diff >= -tolerance:
             decision = "candidate_at_least_as_good"
-            reason = (
-                f"val_pr_auc diff={pr_auc_diff:.4f} is within the allowed regression "
-                f"tolerance of -{settings.max_champion_regression}"
-            )
+            reason = f"val_pr_auc diff={pr_auc_diff:.4f} within tolerance of -{tolerance}"
+        elif pr_auc_diff is not None:
+            decision = "candidate_worse"
+            reason = f"val_pr_auc diff={pr_auc_diff:.4f} exceeds tolerance of -{tolerance}"
         else:
             decision = "candidate_worse"
-            reason = (
-                f"val_pr_auc diff={pr_auc_diff} exceeds the allowed regression "
-                f"tolerance of -{settings.max_champion_regression}"
-                if pr_auc_diff is not None
-                else "val_pr_auc missing on one of the versions; cannot confirm candidate is not worse"
-            )
+            reason = "val_pr_auc missing on a version; cannot confirm candidate isn't worse"
 
     return {
         "model_name": model_name,
-        "compared_at": datetime.now(timezone.utc).isoformat(),
+        "compared_at": datetime.now(UTC).isoformat(),
         "candidate": candidate,
         "champion": champion,
         "diff": diff,
@@ -100,12 +99,16 @@ def render_markdown(report: dict) -> str:
         "",
         f"**Decision:** `{report['decision']}` — {report['reason']}",
         "",
-        f"- candidate: version {cand.get('version')} (run `{cand.get('run_id')}`)"
-        if cand
-        else "- candidate: none",
-        f"- champion: version {champ.get('version')} (run `{champ.get('run_id')}`)"
-        if champ
-        else "- champion: none",
+        (
+            f"- candidate: version {cand.get('version')} (run `{cand.get('run_id')}`)"
+            if cand
+            else "- candidate: none"
+        ),
+        (
+            f"- champion: version {champ.get('version')} (run `{champ.get('run_id')}`)"
+            if champ
+            else "- champion: none"
+        ),
         "",
         "| metric | candidate | champion | diff |",
         "|---|---|---|---|",
@@ -115,7 +118,8 @@ def render_markdown(report: dict) -> str:
         c = (cand.get("metrics") or {}).get(key)
         ch = (champ.get("metrics") or {}).get(key)
         lines.append(f"| {m} | {c} | {ch} | {diff.get(key)} |")
-    lines.append(f"| threshold | {cand.get('threshold')} | {champ.get('threshold')} | {diff.get('threshold')} |")
+    cand_t, champ_t, diff_t = cand.get("threshold"), champ.get("threshold"), diff.get("threshold")
+    lines.append(f"| threshold | {cand_t} | {champ_t} | {diff_t} |")
     return "\n".join(lines) + "\n"
 
 
@@ -129,7 +133,9 @@ def save_reports(report: dict) -> tuple[Path, Path]:
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     report = compare_candidate_vs_champion()
     json_path, md_path = save_reports(report)
     logger.info("Wrote %s and %s", json_path, md_path)

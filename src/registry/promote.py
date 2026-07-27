@@ -18,6 +18,7 @@ a failed attempt, does not corrupt state.
 Usage:
     python -m src.registry.promote
 """
+
 from __future__ import annotations
 
 import json
@@ -59,7 +60,12 @@ def run_promotion_checks(model_name: str | None = None, tracking_uri: str | None
         return {"promoted": False, "candidate_version": str(candidate_mv.version), "checks": checks}
 
     signature = pyfunc_model.metadata.signature
-    _record(checks, "signature_present", signature is not None, "" if signature else "no signature logged")
+    _record(
+        checks,
+        "signature_present",
+        signature is not None,
+        "" if signature else "no signature logged",
+    )
 
     try:
         smoke_output = wrapper.predict(None, pd.DataFrame([{}]))
@@ -87,16 +93,29 @@ def run_promotion_checks(model_name: str | None = None, tracking_uri: str | None
     )
 
     comparison = compare_candidate_vs_champion(model_name=model_name, tracking_uri=tracking_uri)
-    no_regression = comparison["decision"] in ("promote_candidate_no_champion", "candidate_at_least_as_good")
+    no_regression = comparison["decision"] in (
+        "promote_candidate_no_champion",
+        "candidate_at_least_as_good",
+    )
     _record(checks, "no_severe_champion_regression", no_regression, comparison["reason"])
 
     all_passed = all(c["passed"] for c in checks.values())
     if all_passed:
         client.set_registered_model_alias(model_name, settings.champion_alias, candidate_mv.version)
-        logger.info("Promoted %s version %s to alias '%s'", model_name, candidate_mv.version, settings.champion_alias)
+        logger.info(
+            "Promoted %s version %s to alias '%s'",
+            model_name,
+            candidate_mv.version,
+            settings.champion_alias,
+        )
     else:
         failed = [name for name, c in checks.items() if not c["passed"]]
-        logger.warning("Promotion blocked for %s version %s; failed checks: %s", model_name, candidate_mv.version, failed)
+        logger.warning(
+            "Promotion blocked for %s version %s; failed checks: %s",
+            model_name,
+            candidate_mv.version,
+            failed,
+        )
 
     return {
         "promoted": all_passed,
@@ -108,7 +127,9 @@ def run_promotion_checks(model_name: str | None = None, tracking_uri: str | None
 
 
 def main() -> None:
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     result = run_promotion_checks()
     print(json.dumps(result, indent=2, default=str))
     sys.exit(0 if result["promoted"] else 1)

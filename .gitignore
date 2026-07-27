@@ -15,3 +15,9 @@ reports/*
 !reports/.gitkeep
 .env
 .DS_Store
+.coverage
+.coverage.*
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/

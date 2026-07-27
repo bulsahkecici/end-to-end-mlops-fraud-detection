@@ -3,6 +3,7 @@
 Never log raw request payloads or transaction contents here — only
 request/response metadata (ids, endpoint, status, latency, model info).
 """
+
 from __future__ import annotations
 
 import json

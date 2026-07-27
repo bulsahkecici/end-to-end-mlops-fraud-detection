@@ -12,13 +12,14 @@ Usage:
     python -m src.modeling.train --data-source synthetic   # no real data needed
     python -m src.modeling.train --data-source ieee --sample-rows 50000
 """
+
 from __future__ import annotations
 
 import argparse
 import json
 import logging
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import joblib
@@ -28,7 +29,7 @@ import mlflow.pyfunc
 import pandas as pd
 from lightgbm import LGBMClassifier
 from mlflow.models import ModelSignature
-from mlflow.types import ColSpec, DataType, Schema
+from mlflow.types import ColSpec, DataType, Schema, TensorSpec
 from sklearn.pipeline import Pipeline
 
 from src.config import settings
@@ -186,9 +187,9 @@ def run_training(
         "data_fingerprint": (
             {f.name: fingerprint_file(f) for f in source_files}
             if source_files
-            else {"source": "synthetic", "n_rows": n_synthetic}
+            else {"source": "synthetic", "n_rows": str(n_synthetic)}
         ),
-        "created_at": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(UTC).isoformat(),
         "random_seed": seed,
     }
 
@@ -201,7 +202,7 @@ def run_training(
                 **{f"lgbm_{k}": v for k, v in params.items()},
                 "data_source": data_source,
                 "sampling_strategy": sampling_strategy,
-                "sample_rows": sample_rows if sample_rows is not None else "all",
+                "sample_rows": str(sample_rows) if sample_rows is not None else "all",
                 "split_strategy": split_strategy,
                 "seed": seed,
                 "threshold_strategy": threshold_strategy,
@@ -238,10 +239,10 @@ def run_training(
         # and MLflow's default (all-required) schema enforcement would
         # otherwise reject exactly the "missing column" requests we designed
         # the pipeline to tolerate, before our code ever runs.
-        input_schema = Schema(
-            [ColSpec(DataType.double, c, required=False) for c in schema.numeric_cols]
-            + [ColSpec(DataType.string, c, required=False) for c in schema.categorical_cols]
-        )
+        input_cols: list[ColSpec | TensorSpec] = []
+        input_cols += [ColSpec(DataType.double, c, required=False) for c in schema.numeric_cols]
+        input_cols += [ColSpec(DataType.string, c, required=False) for c in schema.categorical_cols]
+        input_schema = Schema(input_cols)
         output_schema = mlflow.models.infer_signature(input_example, example_output).outputs
         signature = ModelSignature(inputs=input_schema, outputs=output_schema)
 
@@ -267,7 +268,9 @@ def run_training(
             versions = client.search_model_versions(f"run_id='{run.info.run_id}'")
             version = str(versions[0].version) if versions else None
             if version:
-                client.set_registered_model_alias(settings.model_name, settings.candidate_alias, version)
+                client.set_registered_model_alias(
+                    settings.model_name, settings.candidate_alias, version
+                )
                 logger.info(
                     "Registered %s version %s with alias '%s'",
                     settings.model_name,
@@ -307,7 +310,9 @@ def main() -> None:
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
 
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.basicConfig(
+        level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s"
+    )
     result = run_training(
         data_source=args.data_source,
         sample_rows=args.sample_rows,

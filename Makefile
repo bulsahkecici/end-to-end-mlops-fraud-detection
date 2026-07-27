@@ -1,10 +1,33 @@
-.PHONY: up down train-smoke train-ieee promote serve format lint typecheck test coverage
+.PHONY: install lint format typecheck test coverage \
+        train-smoke train-ieee promote serve \
+        docker-build docker-up docker-down smoke-test drift-report \
+        up down
 
-up:
-	docker compose up -d
+# Windows (PowerShell) users: these targets are thin wrappers over plain
+# Python/pip/docker commands. If `make` isn't available, run the command on
+# the right-hand side of each target directly, e.g.:
+#   python -m pip install -r requirements-dev.txt   (install)
+#   python -m pytest                                (test)
+#   python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000   (serve)
 
-down:
-	docker compose down
+install:
+	pip install -r requirements-dev.txt
+
+lint:
+	ruff check src tests
+
+format:
+	black src tests
+	ruff check --fix src tests
+
+typecheck:
+	mypy src
+
+test:
+	pytest
+
+coverage:
+	pytest --cov=src --cov-report=term-missing
 
 train-smoke:
 	python -m src.modeling.train --data-source synthetic --n-synthetic 4000
@@ -18,17 +41,22 @@ promote:
 serve:
 	python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 
-format:
-	black src tests
+docker-build:
+	docker build -f Dockerfile.api -t ieee-fraud-api:local .
 
-lint:
-	ruff check src tests
+docker-up:
+	docker compose --profile local-lite up -d
 
-typecheck:
-	mypy src
+docker-down:
+	docker compose --profile local-lite down
+	docker compose --profile production-like down
 
-test:
-	pytest
+smoke-test:
+	python scripts/validate_e2e.py
 
-coverage:
-	pytest --cov=src --cov-report=term-missing
+drift-report:
+	python -m src.monitoring.drift --synthetic
+
+# Aliases kept for backwards compatibility with the original Makefile.
+up: docker-up
+down: docker-down

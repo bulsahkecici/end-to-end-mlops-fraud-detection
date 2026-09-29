@@ -16,6 +16,7 @@ import mlflow
 import mlflow.pyfunc
 from fastapi import HTTPException
 
+from src.api.validation import ModelFeatureContract
 from src.config import settings
 
 logger = logging.getLogger("src.api")
@@ -33,6 +34,7 @@ class ModelState:
         self.model_version: str | None = None
         self.model_source: str | None = None
         self.load_error: str | None = None
+        self.feature_contract: ModelFeatureContract | None = None
 
     @property
     def is_ready(self) -> bool:
@@ -91,10 +93,12 @@ def load_model_into_state() -> None:
 
     try:
         model, version, source = resolve_and_load_model()
+        feature_contract = ModelFeatureContract.from_model(model)
         model_state.model = model
         model_state.model_version = version
         model_state.model_source = source
         model_state.load_error = None
+        model_state.feature_contract = feature_contract
         MODEL_LOADED.set(1)
         MODEL_INFO.labels(model_name=settings.model_name, model_version=version).set(1)
         logger.info(
@@ -103,7 +107,10 @@ def load_model_into_state() -> None:
         )
     except Exception as exc:  # noqa: BLE001 - intentionally broad: startup must never crash the app
         model_state.model = None
+        model_state.model_version = None
+        model_state.model_source = None
         model_state.load_error = str(exc)
+        model_state.feature_contract = None
         MODEL_LOADED.set(0)
         logger.warning("model_load_failed: %s", exc)
 

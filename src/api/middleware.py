@@ -57,6 +57,13 @@ def register_middleware(app: FastAPI) -> None:
                 except ValueError:
                     too_large = False
 
+            # Content-Length is optional and cannot be trusted on its own.
+            # Starlette caches request.body(), so downstream parsing sees the
+            # same bytes without a second network read.
+            if not too_large:
+                body = await request.body()
+                too_large = len(body) > settings.api_max_request_bytes
+
             if too_large:
                 response = JSONResponse(
                     status_code=413, content={"detail": "Request body too large"}

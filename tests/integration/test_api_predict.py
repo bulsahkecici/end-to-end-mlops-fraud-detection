@@ -83,8 +83,32 @@ def test_predict_multi_record(promoted_client):
     assert len(resp.json()["predictions"]) == 2
 
 
-def test_predict_extra_and_reordered_columns(promoted_client):
+def test_predict_full_unknown_category_extra_and_reordered_columns(promoted_client):
     client, _ = promoted_client
+    full_resp = client.post(
+        "/predict",
+        json={
+            "records": [
+                {
+                    "TransactionDT": 86_400,
+                    "TransactionAmt": 249.0,
+                    "ProductCD": "W",
+                    "card4": "visa",
+                    "card6": "credit",
+                    "P_emaildomain": "gmail.com",
+                    "M1": "T",
+                    "C1": 2.0,
+                    "C2": 1.0,
+                    "D1": 3.0,
+                    "D2": 2.0,
+                    "V1": 0.25,
+                    "V2": -0.75,
+                }
+            ]
+        },
+    )
+    assert full_resp.status_code == 200
+
     resp = client.post(
         "/predict",
         json={
@@ -108,6 +132,13 @@ def test_predict_empty_records_returns_422(promoted_client):
     resp = client.post("/predict", json={"records": []})
     assert resp.status_code == 422
 
+    for record in ({}, {"unexpected_field": "value"}, {"TransactionAmt": None}):
+        resp = client.post("/predict", json={"records": [record]})
+        assert resp.status_code == 422
+        detail = resp.json()["detail"]
+        assert detail["code"] == "semantic_validation_failed"
+        assert detail["errors"][0]["code"] == "no_usable_features"
+
 
 def test_predict_malformed_json_returns_422(promoted_client):
     client, _ = promoted_client
@@ -116,19 +147,58 @@ def test_predict_malformed_json_returns_422(promoted_client):
     )
     assert resp.status_code == 422
 
+    for payload in (
+        {"records": {"TransactionAmt": 1.0}},
+        {"records": ["not-an-object"]},
+        {"records": [{"TransactionAmt": 1.0}], "unexpected": True},
+    ):
+        assert client.post("/predict", json=payload).status_code == 422
 
-def test_predict_gracefully_coerces_unparseable_numeric_values(promoted_client):
-    # A nested JSON object in a numeric field can't be parsed as a number;
-    # the ColumnAligner coerces it to NaN (median-imputed downstream) rather
-    # than crashing — this is intentional robustness, not an error case.
+
+def test_predict_rejects_malformed_numeric_and_non_scalar_model_features(promoted_client):
     client, _ = promoted_client
-    resp = client.post(
+    cases = [
+        ({"TransactionAmt": "not-a-number"}, "invalid_numeric"),
+        ({"TransactionAmt": {"nested": "object"}}, "non_scalar_feature"),
+        ({"TransactionAmt": [1, 2]}, "non_scalar_feature"),
+    ]
+    for record, expected_code in cases:
+        resp = client.post("/predict", json={"records": [record]})
+        assert resp.status_code == 422
+        error = resp.json()["detail"]["errors"][0]
+        assert error["record_index"] == 0
+        assert error["field"] == "TransactionAmt"
+        assert error["code"] == expected_code
+
+    non_finite = client.post(
         "/predict",
-        json={"records": [{"TransactionAmt": {"nested": "object"}}]},
+        content=b'{"records":[{"TransactionAmt":NaN}]}',
+        headers={"Content-Type": "application/json"},
     )
-    assert resp.status_code == 200
-    pred = resp.json()["predictions"][0]
-    assert 0.0 <= pred["fraud_probability"] <= 1.0
+    assert non_finite.status_code == 422
+    assert non_finite.json()["detail"]["errors"][0]["code"] == "invalid_numeric"
+
+
+def test_predict_enforces_batch_and_actual_body_size_boundaries(promoted_client, monkeypatch):
+    client, _ = promoted_client
+    too_many = [{"TransactionAmt": 1.0}] * (settings.api_max_batch_size + 1)
+    assert client.post("/predict", json={"records": too_many}).status_code == 422
+
+    encoded = b'{"records":[{"TransactionAmt":1.0}]}'
+    monkeypatch.setattr(settings, "api_max_request_bytes", len(encoded))
+    at_limit = client.post(
+        "/predict", content=encoded, headers={"Content-Type": "application/json"}
+    )
+    assert at_limit.status_code == 200
+
+    monkeypatch.setattr(settings, "api_max_request_bytes", len(encoded) - 1)
+    over_limit = client.post(
+        "/predict",
+        content=encoded,
+        headers={"Content-Type": "application/json", "Content-Length": "0"},
+    )
+    assert over_limit.status_code == 413
+    assert over_limit.json() == {"detail": "Request body too large"}
 
 
 def test_predict_response_never_leaks_raw_traceback_on_internal_error(promoted_client, monkeypatch):
@@ -142,7 +212,7 @@ def test_predict_response_never_leaks_raw_traceback_on_internal_error(promoted_c
 
     monkeypatch.setattr(dependencies.model_state.model, "predict", _boom)
     resp = client.post("/predict", json={"records": [{"TransactionAmt": 1.0}]})
-    assert resp.status_code == 400
+    assert resp.status_code == 500
     assert "Traceback" not in resp.text
     assert "simulated internal failure" not in resp.text
 

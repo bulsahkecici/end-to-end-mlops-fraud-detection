@@ -28,6 +28,19 @@ def test_predict_request_rejects_over_max_batch_size():
         PredictRequest(records=too_many)
 
 
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"records": {"TransactionAmt": 1.0}},
+        {"records": [1.0]},
+        {"records": [{"TransactionAmt": 1.0}], "unexpected": True},
+    ],
+)
+def test_predict_request_rejects_malformed_transport_shape(payload):
+    with pytest.raises(ValidationError):
+        PredictRequest.model_validate(payload)
+
+
 def test_predict_request_allows_arbitrary_extra_fields_per_record():
     req = PredictRequest(records=[{"TransactionAmt": 1.0, "some_unknown_field": "x", "n": None}])
     assert req.records[0]["some_unknown_field"] == "x"

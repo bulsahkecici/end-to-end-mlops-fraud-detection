@@ -4,18 +4,20 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from src.config import settings
 
 
 class PredictRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     records: list[dict[str, Any]] = Field(
         ...,
         min_length=1,
         max_length=settings.api_max_batch_size,
-        description="One or more transaction records. Missing/extra/reordered "
-        "fields relative to the training schema are handled automatically.",
+        description="One or more transaction records. Record-level extra fields are ignored; "
+        "recognized model features are validated against the loaded model schema.",
     )
 
 

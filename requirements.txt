@@ -3,6 +3,8 @@ numpy==2.0.2
 scikit-learn==1.5.2
 lightgbm==4.6.0
 mlflow==2.22.5
+# MLflow 2.22.5 imports a pool class removed in SQLAlchemy 2.1.
+sqlalchemy==2.0.51
 pyarrow==17.0.0
 fastapi==0.140.0
 uvicorn[standard]==0.51.0

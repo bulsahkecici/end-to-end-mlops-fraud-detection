@@ -36,13 +36,24 @@ Request body:
 ```
 
 - `records` is a non-empty list of 1 to `API_MAX_BATCH_SIZE` (default 500)
-  objects with arbitrary keys.
-- **Only `TransactionAmt` is meaningfully required** in the sense that it's
-  the one column present in every README example — in practice *every*
-  column is optional. Missing columns are imputed the same way the
-  training pipeline imputes missing values; unknown/extra columns are
-  dropped; column order doesn't matter; categories never seen in training
-  map to a reserved "unknown" code instead of raising.
+  JSON objects. Unexpected top-level request fields are rejected.
+- Every model feature is optional, but every record must contain at least one
+  recognized model feature with a non-missing value. Empty, extra-only, and
+  all-null records are rejected as semantically unusable.
+- Model feature names and numeric/categorical roles come from the loaded
+  model artifact's fitted schema metadata; the API does not maintain a
+  hardcoded copy of the training schema.
+- Numeric features accept finite JSON numbers and finite numeric strings.
+  Boolean, blank, non-numeric, `NaN`, and infinite values are rejected.
+- Categorical features accept nonblank strings. Categories never seen during
+  training remain supported and map to the fitted encoder's unknown code.
+- `null` represents an optional missing value and is handled by the fitted
+  training-time imputer. It does not count as a usable value by itself.
+- Objects and arrays are rejected when supplied for a recognized scalar model
+  feature. Extra record fields are ignored (including their values) and do
+  not count toward semantic usability. Column order remains irrelevant.
+- Validation never transforms an accepted request. Accepted records flow
+  unchanged through the serialized fitted aligner, preprocessor, and model.
 
 Response:
 
@@ -100,10 +111,32 @@ curl -s -X POST http://localhost:8000/predict \
 | Empty `records` list | `422` | pydantic validation error |
 | Malformed JSON | `422` | pydantic/FastAPI validation error |
 | More than `API_MAX_BATCH_SIZE` records | `422` | pydantic validation error |
+| Empty, extra-only, or all-null record | `422` | structured `semantic_validation_failed` detail |
+| Malformed or non-scalar recognized model feature | `422` | structured error with record index, field, and code |
 | Request body larger than `API_MAX_REQUEST_BYTES` | `413` | `{"detail": "Request body too large"}` |
 | No model loaded | `503` | `{"detail": "Model not loaded. ..."}` |
 | Missing/invalid `X-API-Key` (only when `API_KEY_ENABLED=true`) | `401` | `{"detail": "Invalid or missing API key"}` |
-| Unexpected internal error | `400` (prediction path) or `500` (unhandled) | generic `{"detail": ...}` — never a raw traceback |
+| Unexpected internal error | `500` | generic `{"detail": ...}` — never a raw traceback |
+
+Semantic validation errors use this stable shape and never echo rejected
+values:
+
+```json
+{
+  "detail": {
+    "code": "semantic_validation_failed",
+    "message": "One or more records failed semantic validation.",
+    "errors": [
+      {
+        "record_index": 0,
+        "field": "TransactionAmt",
+        "code": "invalid_numeric",
+        "message": "Numeric model features must be finite numbers or numeric strings."
+      }
+    ]
+  }
+}
+```
 
 ## `GET /metrics`
 

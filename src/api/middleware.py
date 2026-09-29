@@ -11,10 +11,12 @@ from __future__ import annotations
 import logging
 import time
 import uuid
+from collections import deque
 
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 from src.api.metrics import REQUEST_COUNT, REQUEST_LATENCY_SECONDS
 from src.config import settings
@@ -22,6 +24,71 @@ from src.config import settings
 logger = logging.getLogger("src.api")
 
 _UNAUTHENTICATED_PATHS = {"/health", "/ready", "/metrics"}
+
+
+class RequestBodyLimitMiddleware:
+    """Enforce a byte limit without buffering an oversized request body.
+
+    Valid request messages are replayed exactly once to downstream Starlette
+    consumers.  At most ``max_bytes`` of body data is retained; the receive
+    loop stops as soon as a chunk would cross the configured limit.
+    """
+
+    def __init__(self, app: ASGIApp, max_bytes: int | None = None) -> None:
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+
+        limit = self.max_bytes if self.max_bytes is not None else settings.api_max_request_bytes
+        if _declared_body_exceeds_limit(scope, limit):
+            await _request_too_large_response(scope, receive, send)
+            return
+
+        buffered_messages: deque[Message] = deque()
+        received_bytes = 0
+        while True:
+            message = await receive()
+            if message["type"] == "http.disconnect":
+                buffered_messages.append(message)
+                break
+
+            body = message.get("body", b"")
+            received_bytes += len(body)
+            if received_bytes > limit:
+                await _request_too_large_response(scope, receive, send)
+                return
+
+            buffered_messages.append(message)
+            if not message.get("more_body", False):
+                break
+
+        async def replay_receive() -> Message:
+            if buffered_messages:
+                return buffered_messages.popleft()
+            return {"type": "http.request", "body": b"", "more_body": False}
+
+        await self.app(scope, replay_receive, send)
+
+
+def _declared_body_exceeds_limit(scope: Scope, limit: int) -> bool:
+    for name, value in scope.get("headers", []):
+        if name.lower() != b"content-length":
+            continue
+        try:
+            if int(value) > limit:
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+async def _request_too_large_response(scope: Scope, receive: Receive, send: Send) -> None:
+    response = JSONResponse(status_code=413, content={"detail": "Request body too large"})
+    await response(scope, receive, send)
 
 
 def setup_cors(app: FastAPI) -> None:
@@ -36,6 +103,10 @@ def setup_cors(app: FastAPI) -> None:
 
 
 def register_middleware(app: FastAPI) -> None:
+    # Register before the decorator below so request-context logging remains
+    # outside the limiter and records early 413 responses as well.
+    app.add_middleware(RequestBodyLimitMiddleware)
+
     @app.middleware("http")
     async def request_context(request: Request, call_next):
         request_id = str(uuid.uuid4())
@@ -49,36 +120,16 @@ def register_middleware(app: FastAPI) -> None:
             )
             logger.warning("unauthorized", extra={"request_id": request_id, "endpoint": endpoint})
         else:
-            content_length = request.headers.get("content-length")
-            too_large = False
-            if content_length is not None:
-                try:
-                    too_large = int(content_length) > settings.api_max_request_bytes
-                except ValueError:
-                    too_large = False
-
-            # Content-Length is optional and cannot be trusted on its own.
-            # Starlette caches request.body(), so downstream parsing sees the
-            # same bytes without a second network read.
-            if not too_large:
-                body = await request.body()
-                too_large = len(body) > settings.api_max_request_bytes
-
-            if too_large:
-                response = JSONResponse(
-                    status_code=413, content={"detail": "Request body too large"}
+            try:
+                response = await call_next(request)
+            except Exception:  # noqa: BLE001 - never leak a raw traceback to the client
+                logger.exception(
+                    "unhandled_exception",
+                    extra={"request_id": request_id, "endpoint": endpoint},
                 )
-            else:
-                try:
-                    response = await call_next(request)
-                except Exception:  # noqa: BLE001 - never leak a raw traceback to the client
-                    logger.exception(
-                        "unhandled_exception",
-                        extra={"request_id": request_id, "endpoint": endpoint},
-                    )
-                    response = JSONResponse(
-                        status_code=500, content={"detail": "Internal server error"}
-                    )
+                response = JSONResponse(
+                    status_code=500, content={"detail": "Internal server error"}
+                )
 
         latency_seconds = time.perf_counter() - start
         response.headers["X-Request-ID"] = request_id

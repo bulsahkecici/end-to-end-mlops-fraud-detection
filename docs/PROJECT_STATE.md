@@ -1,7 +1,8 @@
 # Project state
 
 - **Current phase:** PHASE 1 — Inference Safety
-- **Current verified commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c` (`HEAD`; Phase 1 files and pre-existing Mac/runtime compatibility changes are uncommitted)
+- **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
+- **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
 - **Next approved phase:** PHASE 2 — Trustworthy Promotion
 
@@ -31,4 +32,4 @@ The default split is temporal: earliest 70% train, next 15% validation, latest 1
 
 ## CI and local verification status
 
-CI defines Ruff, Black, mypy, unit tests, integration tests, coverage with a 75% floor, local-lite Docker build/smoke checks, and a synthetic E2E job. Phase 1 local verification on 2026-09-30 passed Ruff, Black check, mypy, 79 unit tests, 14 integration tests, the dedicated 2-test train/serve parity regression, and the full 93-test suite at 89.83% coverage. The isolated synthetic lifecycle/API smoke passed all 8 steps, including training, registration, promotion, real Uvicorn startup, readiness, and single/batch prediction. Remote GitHub Actions status was not queried.
+CI defines Ruff, Black, mypy, unit tests, integration tests, coverage with a 75% floor, local-lite Docker build/smoke checks, and a synthetic E2E job. Phase 1 review verification on 2026-09-30 passed Ruff, Black check, mypy, 84 unit tests (including 5 focused bounded-body tests), 14 integration tests (including the 2-test train/serve parity regression), and the full 98-test suite at 89.89% coverage. The isolated synthetic lifecycle/API smoke passed all 8 steps, including training, registration, promotion, real Uvicorn startup, readiness, and single/batch prediction. Remote GitHub Actions status was not queried.

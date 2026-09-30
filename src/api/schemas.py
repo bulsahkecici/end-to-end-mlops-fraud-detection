@@ -42,3 +42,5 @@ class ReadyResponse(BaseModel):
     model_name: str
     model_version: str | None = None
     model_source: str | None = None
+    run_id: str | None = None
+    deployed_at: str | None = None

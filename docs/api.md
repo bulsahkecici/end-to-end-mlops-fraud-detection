@@ -14,14 +14,20 @@ curl -s http://localhost:8000/health
 
 ## `GET /ready`
 
-Readiness — `200` only if a model is loaded from the MLflow registry.
-`503` with an explanatory `detail` otherwise (e.g. no `champion` alias set
-yet — run `make promote` first).
+Readiness — `200` only if a valid deployment manifest exists and its exact
+immutable MLflow model version and run ID load successfully. Missing/corrupt
+deployment state, a registry mismatch, or artifact load failure returns a
+generic `503`; operational detail is retained in service logs rather than
+exposed to clients.
 
 ```bash
 curl -s http://localhost:8000/ready
-# {"status":"ready","model_name":"ieee_fraud_lgbm","model_version":"1","model_source":"alias:champion"}
+# {"status":"ready","model_name":"ieee_fraud_lgbm","model_version":"1","model_source":"version:1","run_id":"...","deployed_at":"..."}
 ```
+
+The endpoint exposes non-sensitive serving identity only. The API does not
+resolve `champion`; alias movement cannot change the reported or loaded model
+without a separate deployment-state update and explicit process restart.
 
 ## `POST /predict`
 
@@ -114,7 +120,7 @@ curl -s -X POST http://localhost:8000/predict \
 | Empty, extra-only, or all-null record | `422` | structured `semantic_validation_failed` detail |
 | Malformed or non-scalar recognized model feature | `422` | structured error with record index, field, and code |
 | Request body larger than `API_MAX_REQUEST_BYTES` | `413` | `{"detail": "Request body too large"}` |
-| No model loaded | `503` | `{"detail": "Model not loaded. ..."}` |
+| No model loaded | `503` | `{"detail": "Model is not ready. Check service logs and deployment state."}` |
 | Missing/invalid `X-API-Key` (only when `API_KEY_ENABLED=true`) | `401` | `{"detail": "Invalid or missing API key"}` |
 | Unexpected internal error | `500` | generic `{"detail": ...}` — never a raw traceback |
 

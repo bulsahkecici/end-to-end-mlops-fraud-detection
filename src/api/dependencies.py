@@ -1,11 +1,8 @@
-"""Model loading and lifecycle state for the FastAPI service.
+"""Immutable deployed-model loading and lifecycle state for FastAPI.
 
-The service loads the model exclusively from the MLflow Model Registry:
-first the ``champion`` alias, falling back to the legacy ``Production``
-stage for registries that still use the old stage-based API. It never reads
-a local feature_meta.json — all preprocessing lives inside the logged
-pipeline itself (see ``src/features/pipeline.py`` and
-``src/modeling/mlflow_wrapper.py``).
+The service reads an explicit deployment manifest at startup and loads only
+the immutable MLflow model version recorded there. Registry alias movement
+cannot change a running process or the model selected at its next restart.
 """
 
 from __future__ import annotations
@@ -18,6 +15,7 @@ from fastapi import HTTPException
 
 from src.api.validation import ModelFeatureContract
 from src.config import settings
+from src.deployment.lifecycle import DeploymentState, load_deployment_state
 
 logger = logging.getLogger("src.api")
 
@@ -33,6 +31,8 @@ class ModelState:
         self.model: object | None = None
         self.model_version: str | None = None
         self.model_source: str | None = None
+        self.run_id: str | None = None
+        self.deployed_at: str | None = None
         self.load_error: str | None = None
         self.feature_contract: ModelFeatureContract | None = None
 
@@ -44,39 +44,34 @@ class ModelState:
 model_state = ModelState()
 
 
-def resolve_and_load_model() -> tuple[object, str, str]:
-    """Resolve the servable model version and load it. Raises ModelLoadError on failure."""
+def resolve_and_load_model() -> tuple[object, DeploymentState]:
+    """Load the exact immutable version in deployment state."""
     mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
     client = mlflow.MlflowClient()
-
-    version: str | None = None
-    source: str | None = None
-    uri: str | None = None
-
     try:
-        mv = client.get_model_version_by_alias(settings.model_name, settings.champion_alias)
-        uri = f"models:/{settings.model_name}@{settings.champion_alias}"
-        version, source = str(mv.version), f"alias:{settings.champion_alias}"
-    except Exception:
-        try:
-            latest = client.get_latest_versions(
-                settings.model_name, stages=[settings.legacy_stage_fallback]
-            )
-        except Exception as exc:
-            raise ModelLoadError(
-                f"Could not resolve model '{settings.model_name}' via alias "
-                f"'{settings.champion_alias}' or stage '{settings.legacy_stage_fallback}': {exc}"
-            ) from exc
-        if not latest:
-            raise ModelLoadError(
-                f"No model version found for '{settings.model_name}' under alias "
-                f"'{settings.champion_alias}' or stage '{settings.legacy_stage_fallback}'. "
-                "Train a model and run `python -m src.registry.promote` first."
-            ) from None
-        uri = f"models:/{settings.model_name}/{settings.legacy_stage_fallback}"
-        version, source = str(latest[0].version), f"stage:{settings.legacy_stage_fallback}"
+        deployment = load_deployment_state(settings.deployment_state_path)
+    except Exception as exc:
+        raise ModelLoadError(f"Invalid deployment state: {exc}") from exc
+    if deployment.model_name != settings.model_name:
+        raise ModelLoadError(
+            f"Deployment state model {deployment.model_name!r} does not match configured "
+            f"model {settings.model_name!r}"
+        )
+    try:
+        registry_version = client.get_model_version(deployment.model_name, deployment.model_version)
+    except Exception as exc:
+        raise ModelLoadError(
+            f"Could not resolve deployed immutable model {deployment.model_name!r} "
+            f"version {deployment.model_version}: {exc}"
+        ) from exc
+    if str(registry_version.run_id) != deployment.run_id:
+        raise ModelLoadError("Deployed model run ID does not match the registry model version")
 
-    pyfunc_model = mlflow.pyfunc.load_model(uri)
+    uri = f"models:/{deployment.model_name}/{deployment.model_version}"
+    try:
+        pyfunc_model = mlflow.pyfunc.load_model(uri)
+    except Exception as exc:
+        raise ModelLoadError(f"Could not load deployed immutable model {uri}: {exc}") from exc
     # Unwrap to the raw FraudModelWrapper and call it directly. mlflow's
     # PyFuncModel.predict() enforces the logged input *schema* strictly
     # (rejects int64-vs-float64 mismatches, etc) before our code ever runs
@@ -85,30 +80,40 @@ def resolve_and_load_model() -> tuple[object, str, str]:
     # logged (for the MLflow UI / other tooling) but is not used to gate
     # requests here.
     model = pyfunc_model.unwrap_python_model()
-    return model, version, source
+    return model, deployment
 
 
 def load_model_into_state() -> None:
     from src.api.metrics import MODEL_INFO, MODEL_LOADED
 
     try:
-        model, version, source = resolve_and_load_model()
+        model, deployment = resolve_and_load_model()
         feature_contract = ModelFeatureContract.from_model(model)
         model_state.model = model
-        model_state.model_version = version
-        model_state.model_source = source
+        model_state.model_version = deployment.model_version
+        model_state.model_source = f"version:{deployment.model_version}"
+        model_state.run_id = deployment.run_id
+        model_state.deployed_at = deployment.deployed_at
         model_state.load_error = None
         model_state.feature_contract = feature_contract
         MODEL_LOADED.set(1)
-        MODEL_INFO.labels(model_name=settings.model_name, model_version=version).set(1)
+        MODEL_INFO.labels(
+            model_name=deployment.model_name, model_version=deployment.model_version
+        ).set(1)
         logger.info(
             "model_loaded",
-            extra={"model_name": settings.model_name, "model_version": version},
+            extra={
+                "model_name": deployment.model_name,
+                "model_version": deployment.model_version,
+                "deployment_id": deployment.deployment_id,
+            },
         )
     except Exception as exc:  # noqa: BLE001 - intentionally broad: startup must never crash the app
         model_state.model = None
         model_state.model_version = None
         model_state.model_source = None
+        model_state.run_id = None
+        model_state.deployed_at = None
         model_state.load_error = str(exc)
         model_state.feature_contract = None
         MODEL_LOADED.set(0)
@@ -120,6 +125,6 @@ def require_model() -> object:
     if not model_state.is_ready:
         raise HTTPException(
             status_code=503,
-            detail="Model not loaded. Train and promote a model, then restart the service.",
+            detail="Model not loaded. Deploy an approved model, then restart the service.",
         )
     return model_state.model

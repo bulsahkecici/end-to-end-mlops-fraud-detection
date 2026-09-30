@@ -1,6 +1,6 @@
 .PHONY: install lint format typecheck test coverage \
-        train-smoke train-ieee promote serve \
-        docker-build docker-up docker-down smoke-test drift-report \
+        train-smoke train-ieee promote deploy deployment-status rollback serve \
+        docker-build docker-up docker-down smoke-test production-e2e drift-report \
         up down
 
 # Windows (PowerShell) users: these targets are thin wrappers over plain
@@ -38,6 +38,15 @@ train-ieee:
 promote:
 	python -m src.registry.promote
 
+deploy:
+	python -m src.deployment.lifecycle deploy
+
+deployment-status:
+	python -m src.deployment.lifecycle inspect
+
+rollback:
+	python -m src.deployment.lifecycle rollback
+
 serve:
 	python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 
@@ -53,6 +62,9 @@ docker-down:
 
 smoke-test:
 	python scripts/validate_e2e.py
+
+production-e2e:
+	python scripts/validate_production_e2e.py
 
 drift-report:
 	python -m src.monitoring.drift --synthetic

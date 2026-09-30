@@ -14,8 +14,8 @@ A CV-ready, end-to-end MLOps project on the **IEEE-CIS Fraud Detection (Vesta)**
          ▼
 ┌────────────────────────┐        ┌──────────────────────────┐
 │ src/modeling/train.py   │        │ src/api/app.py            │
-│ ingest → validate       │───────▶│ loads models:/<name>@champion (or
-│ → temporal split        │  gate  │ legacy "Production" stage)│
+│ ingest → validate       │───────▶│ loads immutable version   │
+│ → temporal split        │  gate  │ from deployment state     │
 │ → fit ColumnAligner +   │ (P1.5) │ GET  /health  /ready       │
 │   ColumnTransformer +   │        │ POST /predict              │
 │   LGBMClassifier        │        │ GET  /metrics (Prometheus) │
@@ -41,10 +41,13 @@ python -m src.modeling.train --data-source synthetic --n-synthetic 4000
 # 3. Promote the new model from `candidate` to `champion` (gated — see docs/deployment.md)
 python -m src.registry.promote
 
-# 4. Serve
+# 4. Explicitly deploy the approved immutable version
+python -m src.deployment.lifecycle deploy
+
+# 5. Serve
 python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000
 
-# 5. Call the API (see "API contract" below)
+# 6. Call the API (see "API contract" below)
 curl -s http://localhost:8000/health
 curl -s http://localhost:8000/ready
 curl -s -X POST http://localhost:8000/predict \
@@ -67,13 +70,14 @@ Then:
 
 ```bash
 cp .env.example .env   # docker compose needs this to parse the file regardless of profile
-docker compose --profile local-lite up -d          # or --profile production-like, see docs/deployment.md
+docker compose --profile local-lite up -d mlflow   # production-like infra: see docs/deployment.md
 python -m src.modeling.train --data-source ieee --sample-rows 300000
 python -m src.registry.promote
-python -m uvicorn src.api.app:app --host 0.0.0.0 --port 8000   # or just use the `api`/`api-prod` container
+python -m src.deployment.lifecycle deploy
+docker compose --profile local-lite up -d --build --force-recreate api nginx
 ```
 
-The `docker compose` commands above also start `nginx`, a rate-limited
+The final `docker compose` command starts `nginx`, a rate-limited
 reverse proxy in front of the API on `http://localhost:8080` (see
 "Rate limiting" in `docs/deployment.md`) — hit that instead of `:8000`
 directly if you want the rate limit enforced.
@@ -86,7 +90,9 @@ directly if you want the rate limit enforced.
 Liveness only — the process is up. Always `200` once the server has started.
 
 ### `GET /ready`
-Readiness — a model is loaded from the registry and can serve predictions. `200` when ready, `503` with an explanatory `detail` when no model is loaded yet (train + promote first).
+Readiness — the exact immutable version in valid deployment state is loaded
+and can serve predictions. `200` when ready; `503` when deployment state or
+the recorded registry artifact is unavailable (train + promote + deploy first).
 
 ### `POST /predict`
 
@@ -166,7 +172,10 @@ pytest --cov=src --cov-report=term-missing
 
 ## Troubleshooting
 
-- **"Model not loaded" / `/ready` returns 503`** — train a model and run `python -m src.registry.promote` before starting the API; the service only ever loads the `champion` alias (or, for backward compatibility, the legacy `Production` stage).
+- **"Model not loaded" / `/ready` returns `503`** — train and promote a model,
+  run `python -m src.deployment.lifecycle deploy`, then restart/recreate the API.
+  Serving loads only the immutable version in deployment state; it never follows
+  `champion` or a legacy registry stage.
 - **Artifact permission errors (Docker profile)** — delete the `mlflow_db` / `minio_data` volumes and re-run `docker compose up -d`.
 
 ## License

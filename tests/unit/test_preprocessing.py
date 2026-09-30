@@ -6,6 +6,8 @@ import pytest
 
 from src.features.pipeline import (
     ALWAYS_DROP_COLS,
+    BASELINE_CATEGORICAL_STRATEGY,
+    FREQUENCY_CATEGORICAL_STRATEGY,
     UNKNOWN_CATEGORY_CODE,
     ColumnAligner,
     build_full_pipeline,
@@ -30,11 +32,55 @@ def raw_train_df():
 
 def test_infer_schema_splits_numeric_and_categorical(raw_train_df):
     X = raw_train_df.drop(columns=["isFraud"])
-    schema = infer_schema(X, cat_nunique_max=3)
+    schema = infer_schema(
+        X,
+        cat_nunique_max=3,
+        categorical_strategy=FREQUENCY_CATEGORICAL_STRATEGY,
+    )
     assert set(schema.numeric_cols) == {"amount", "count"}
-    assert schema.categorical_cols == ["category"]
-    assert "high_card" in schema.dropped_cols
+    assert schema.categorical_cols == ["category", "high_card"]
+    assert schema.high_cardinality_cols == ["high_card"]
+    assert "high_card" not in schema.dropped_cols
     assert "TransactionID" not in schema.use_cols
+
+
+def test_preserved_baseline_strategy_drops_high_cardinality(raw_train_df):
+    X = raw_train_df.drop(columns=["isFraud"])
+    schema = infer_schema(
+        X,
+        cat_nunique_max=3,
+        categorical_strategy=BASELINE_CATEGORICAL_STRATEGY,
+    )
+    assert schema.categorical_cols == ["category"]
+    assert schema.high_cardinality_cols == []
+    assert schema.dropped_cols == ["high_card"]
+
+
+def test_frequency_encoding_is_train_fitted_and_unknown_safe(raw_train_df):
+    X = raw_train_df.drop(columns=["isFraud", "TransactionID"])
+    schema = infer_schema(
+        X,
+        cat_nunique_max=3,
+        categorical_strategy=FREQUENCY_CATEGORICAL_STRATEGY,
+    )
+    aligner = ColumnAligner(schema.numeric_cols, schema.categorical_cols).fit(X)
+    preprocessor = build_preprocessor(schema).fit(aligner.transform(X))
+
+    incoming = pd.DataFrame(
+        [
+            {"amount": 1.0, "count": 1.0, "category": "a", "high_card": "id_0"},
+            {"amount": 1.0, "count": 1.0, "category": "a", "high_card": "unseen"},
+        ]
+    )
+    transformed = preprocessor.transform(aligner.transform(incoming))
+    high_card_index = len(schema.numeric_cols) + len(schema.ordinal_categorical_cols)
+    assert transformed[0, high_card_index] == pytest.approx(1 / 6)
+    assert transformed[1, high_card_index] == 0.0
+
+
+def test_infer_schema_rejects_unknown_categorical_strategy(raw_train_df):
+    with pytest.raises(ValueError, match="categorical_strategy"):
+        infer_schema(raw_train_df, categorical_strategy="target_encode_everything")
 
 
 def test_infer_schema_never_touches_target(raw_train_df):

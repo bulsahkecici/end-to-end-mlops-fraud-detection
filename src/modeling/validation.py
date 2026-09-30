@@ -67,6 +67,7 @@ def split_data(
     test_ratio: float,
     seed: int,
     time_col: str = TIME_COL,
+    summarize_final_test: bool = True,
 ) -> tuple[pd.DataFrame, pd.DataFrame, pd.DataFrame, dict]:
     """Split raw data into train/val/test according to ``strategy``.
 
@@ -81,9 +82,14 @@ def split_data(
     else:
         raise ValueError(f"Unknown split_strategy={strategy!r}, expected 'temporal' or 'random'")
 
+    final_test_summary = (
+        summarize_split(test, "test")
+        if summarize_final_test
+        else {"name": "test", "n_rows": int(len(test)), "reserved": True}
+    )
     summaries = {
         "train": summarize_split(train, "train"),
         "val": summarize_split(val, "val"),
-        "test": summarize_split(test, "test"),
+        "test": final_test_summary,
     }
     return train, val, test, summaries

@@ -72,3 +72,28 @@ def test_reloaded_model_handles_missing_and_reordered_columns_like_training(mlfl
     partial = row[row.columns[: len(row.columns) // 2]]
     partial_pred = reloaded.predict(None, partial)["fraud_probability"].iloc[0]
     assert 0.0 <= partial_pred <= 1.0
+
+
+def test_calibrated_frequency_pipeline_survives_mlflow_round_trip(mlflow_tmp_uri):
+    result = run_training(
+        data_source="synthetic",
+        n_synthetic=4000,
+        seed=17,
+        tracking_uri=mlflow_tmp_uri,
+        register=True,
+        categorical_strategy="frequency_high_cardinality",
+        calibration_strategy="sigmoid",
+        cat_nunique_max=2,
+        debug_return=True,
+    )
+    sample = result["_debug"]["X_val_raw"].head(25).reset_index(drop=True)
+    expected = result["_debug"]["pipeline"].predict_proba(sample)[:, 1]
+
+    mlflow.set_tracking_uri(mlflow_tmp_uri)
+    reloaded = mlflow.pyfunc.load_model(
+        f"models:/{result['model_name']}@candidate"
+    ).unwrap_python_model()
+    actual = reloaded.predict(None, sample)["fraud_probability"].to_numpy()
+
+    np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=1e-8)
+    assert result["feature_schema"]["high_cardinality_cols"]

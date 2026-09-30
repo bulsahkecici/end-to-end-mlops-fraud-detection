@@ -30,39 +30,61 @@ TARGET_COL = "isFraud"
 ALWAYS_DROP_COLS = {"TransactionID", "isFraud"}
 MISSING_CATEGORY_TOKEN = "__missing__"
 UNKNOWN_CATEGORY_CODE = -1
+BASELINE_CATEGORICAL_STRATEGY = "ordinal_drop_high_cardinality"
+FREQUENCY_CATEGORICAL_STRATEGY = "frequency_high_cardinality"
+VALID_CATEGORICAL_STRATEGIES = {
+    BASELINE_CATEGORICAL_STRATEGY,
+    FREQUENCY_CATEGORICAL_STRATEGY,
+}
 
 
 @dataclass(frozen=True)
 class FeatureSchema:
     """Column roles decided once, from training data only.
 
-    ``cat_nunique_max`` bounds cardinality of columns kept as categorical
-    (very-high-cardinality free-text-like columns such as ``DeviceInfo`` are
-    dropped rather than blowing up the encoder). This decision only ever
-    looks at column dtypes / cardinality on the training split — never at
-    the label — so it does not leak validation/test information.
+    ``high_cardinality_cols`` records categorical columns routed to a
+    train-fitted frequency encoder. With the preserved baseline strategy,
+    those columns instead remain in ``dropped_cols``. Role inference only
+    looks at training-split dtypes/cardinality and never at the label.
     """
 
     numeric_cols: list[str]
     categorical_cols: list[str]
+    high_cardinality_cols: list[str] = field(default_factory=list)
     dropped_cols: list[str] = field(default_factory=list)
 
     @property
     def use_cols(self) -> list[str]:
         return self.numeric_cols + self.categorical_cols
 
+    @property
+    def ordinal_categorical_cols(self) -> list[str]:
+        high_cardinality = set(self.high_cardinality_cols)
+        return [col for col in self.categorical_cols if col not in high_cardinality]
 
-def infer_schema(df: pd.DataFrame, cat_nunique_max: int = 200) -> FeatureSchema:
+
+def infer_schema(
+    df: pd.DataFrame,
+    cat_nunique_max: int = 200,
+    categorical_strategy: str = BASELINE_CATEGORICAL_STRATEGY,
+) -> FeatureSchema:
     """Infer numeric/categorical column roles from a (training) dataframe.
 
     Must only ever be called on the training split — calling it on
     validation/test data would let split-specific column statistics leak
     into the feature schema.
     """
+    if categorical_strategy not in VALID_CATEGORICAL_STRATEGIES:
+        raise ValueError(
+            f"Unknown categorical_strategy={categorical_strategy!r}, "
+            f"expected one of {sorted(VALID_CATEGORICAL_STRATEGIES)}"
+        )
+
     candidate_cols = [c for c in df.columns if c not in ALWAYS_DROP_COLS]
 
     numeric_cols: list[str] = []
     categorical_cols: list[str] = []
+    high_cardinality_cols: list[str] = []
     dropped_cols: list[str] = []
 
     for col in candidate_cols:
@@ -72,12 +94,57 @@ def infer_schema(df: pd.DataFrame, cat_nunique_max: int = 200) -> FeatureSchema:
             nunique = df[col].nunique(dropna=True)
             if nunique <= cat_nunique_max:
                 categorical_cols.append(col)
+            elif categorical_strategy == FREQUENCY_CATEGORICAL_STRATEGY:
+                categorical_cols.append(col)
+                high_cardinality_cols.append(col)
             else:
                 dropped_cols.append(col)
 
     return FeatureSchema(
-        numeric_cols=numeric_cols, categorical_cols=categorical_cols, dropped_cols=dropped_cols
+        numeric_cols=numeric_cols,
+        categorical_cols=categorical_cols,
+        high_cardinality_cols=high_cardinality_cols,
+        dropped_cols=dropped_cols,
     )
+
+
+class FrequencyEncoder(BaseEstimator, TransformerMixin):
+    """Encode categories with train-fitted relative frequencies.
+
+    The learned maps are entirely label-independent. Missing values should be
+    imputed before this transformer; unseen inference values map to ``0.0``.
+    """
+
+    def fit(self, X, y=None) -> FrequencyEncoder:
+        values = np.asarray(X, dtype=object)
+        if values.ndim == 1:
+            values = values.reshape(-1, 1)
+        self.n_features_in_ = values.shape[1]
+        self.frequency_maps_ = []
+        for index in range(self.n_features_in_):
+            counts = pd.Series(values[:, index], dtype=object).value_counts(
+                normalize=True, dropna=False
+            )
+            self.frequency_maps_.append(counts.to_dict())
+        return self
+
+    def transform(self, X) -> np.ndarray:
+        values = np.asarray(X, dtype=object)
+        if values.ndim == 1:
+            values = values.reshape(-1, 1)
+        if values.shape[1] != self.n_features_in_:
+            raise ValueError(
+                f"Expected {self.n_features_in_} categorical columns, got {values.shape[1]}"
+            )
+        encoded = np.zeros(values.shape, dtype=np.float64)
+        for index, frequencies in enumerate(self.frequency_maps_):
+            encoded[:, index] = pd.Series(values[:, index], dtype=object).map(frequencies).fillna(0)
+        return encoded
+
+    def get_feature_names_out(self, input_features=None) -> np.ndarray:
+        if input_features is None:
+            return np.asarray([f"x{index}" for index in range(self.n_features_in_)])
+        return np.asarray(input_features, dtype=object)
 
 
 class ColumnAligner(BaseEstimator, TransformerMixin):
@@ -138,10 +205,17 @@ def build_preprocessor(schema: FeatureSchema) -> ColumnTransformer:
             ),
         ]
     )
+    frequency_pipeline = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="constant", fill_value=MISSING_CATEGORY_TOKEN)),
+            ("encoder", FrequencyEncoder()),
+        ]
+    )
     return ColumnTransformer(
         transformers=[
             ("num", numeric_pipeline, schema.numeric_cols),
-            ("cat", categorical_pipeline, schema.categorical_cols),
+            ("cat", categorical_pipeline, schema.ordinal_categorical_cols),
+            ("high_card_cat", frequency_pipeline, schema.high_cardinality_cols),
         ],
         remainder="drop",
         verbose_feature_names_out=False,

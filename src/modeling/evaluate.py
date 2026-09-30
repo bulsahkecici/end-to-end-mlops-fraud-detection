@@ -16,7 +16,13 @@ from sklearn.metrics import (
 )
 
 
-def compute_metrics(y_true: ArrayLike, y_proba: ArrayLike, threshold: float = 0.5) -> dict:
+def compute_metrics(
+    y_true: ArrayLike,
+    y_proba: ArrayLike,
+    threshold: float = 0.5,
+    fn_cost: float | None = None,
+    fp_cost: float | None = None,
+) -> dict:
     """Compute the full metric suite for a set of predictions at a given threshold.
 
     ROC-AUC / PR-AUC / log-loss / Brier score are threshold-independent
@@ -47,4 +53,10 @@ def compute_metrics(y_true: ArrayLike, y_proba: ArrayLike, threshold: float = 0.
         "n_samples": int(len(y_true)),
         "confusion_matrix": {"tn": int(tn), "fp": int(fp), "fn": int(fn), "tp": int(tp)},
     }
+    if (fn_cost is None) != (fp_cost is None):
+        raise ValueError("fn_cost and fp_cost must be provided together")
+    if fn_cost is not None and fp_cost is not None:
+        total_cost = float(fn * fn_cost + fp * fp_cost)
+        metrics["expected_cost"] = total_cost
+        metrics["expected_cost_per_sample"] = total_cost / len(y_true)
     return metrics

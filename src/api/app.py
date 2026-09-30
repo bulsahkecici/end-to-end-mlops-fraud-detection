@@ -6,9 +6,9 @@ Endpoints:
     POST /predict  - fraud probability + thresholded decision for one or more records.
     GET  /metrics  - Prometheus metrics.
 
-The model is loaded exclusively from the MLflow Model Registry at startup
-(see ``src/api/dependencies.py``); there is no local feature_meta.json
-dependency, so training and serving are guaranteed to use the identical
+The model is loaded from the immutable MLflow version in explicit deployment
+state at startup (see ``src/api/dependencies.py``); there is no alias-following
+or local feature_meta.json dependency, so training and serving use the same
 fitted preprocessing pipeline.
 """
 
@@ -66,13 +66,15 @@ def ready() -> ReadyResponse:
     if not model_state.is_ready:
         raise HTTPException(
             status_code=503,
-            detail=f"Model not loaded: {model_state.load_error or 'unknown error'}",
+            detail="Model is not ready. Check service logs and deployment state.",
         )
     return ReadyResponse(
         status="ready",
         model_name=settings.model_name,
         model_version=model_state.model_version,
         model_source=model_state.model_source,
+        run_id=model_state.run_id,
+        deployed_at=model_state.deployed_at,
     )
 
 

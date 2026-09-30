@@ -2,8 +2,9 @@
 """Single-command local end-to-end validation.
 
 Trains a model on synthetic data, registers it as `candidate`, runs the
-promotion gate, starts the FastAPI service against the resulting registry
-state, and exercises /health, /ready and /predict. Prints a clear
+promotion gate, explicitly deploys the approved immutable version, starts the
+FastAPI service against that deployment state, and exercises /health, /ready
+and /predict. Prints a clear
 step-by-step PASS/FAIL report and exits non-zero on any failure.
 
 Uses an isolated, throwaway sqlite MLflow store by default (does not touch
@@ -115,7 +116,17 @@ def run_promotion() -> str:
     return f"promoted version {result['candidate_version']}"
 
 
-@step("5. start API and wait for it to load the model")
+@step("5. deploy approved champion as an immutable serving target")
+def deploy_model() -> str:
+    from src.deployment.lifecycle import deploy_champion
+
+    deployment = deploy_champion()
+    global _deployment_state
+    _deployment_state = deployment
+    return f"deployment={deployment.deployment_id} version={deployment.model_version}"
+
+
+@step("6. start API and wait for it to load the deployed model")
 def start_api() -> str:
     global _api_process
     env = os.environ.copy()
@@ -152,15 +163,19 @@ def start_api() -> str:
     raise RuntimeError("API did not become healthy within 30s")
 
 
-@step("6. GET /ready reports a loaded model")
+@step("7. GET /ready reports the immutable deployed model")
 def check_ready() -> str:
     status, body = _http_get("/ready")
-    if status != 200 or not body.get("model_version"):
+    if (
+        status != 200
+        or body.get("model_version") != _deployment_state.model_version
+        or body.get("run_id") != _deployment_state.run_id
+    ):
         raise RuntimeError(f"status={status} body={body}")
     return f"model_version={body['model_version']}"
 
 
-@step("7. POST /predict (README-style single field) returns a valid probability")
+@step("8. POST /predict (README-style single field) returns a valid probability")
 def check_predict() -> str:
     status, body = _http_post_json("/predict", {"records": [{"TransactionAmt": 100.0}]})
     if status != 200:
@@ -171,7 +186,7 @@ def check_predict() -> str:
     return f"fraud_probability={pred['fraud_probability']:.4f}"
 
 
-@step("8. POST /predict (multi-record batch) returns matching count")
+@step("9. POST /predict (multi-record batch) returns matching count")
 def check_predict_batch() -> str:
     records = [{"TransactionAmt": 1.0}, {"TransactionAmt": 500.0, "ProductCD": "C"}]
     status, body = _http_post_json("/predict", {"records": records})
@@ -184,6 +199,9 @@ def main() -> int:
     if "MLFLOW_TRACKING_URI" not in os.environ:
         tmp_dir = tempfile.mkdtemp(prefix="validate_e2e_mlflow_")
         os.environ["MLFLOW_TRACKING_URI"] = f"sqlite:///{tmp_dir}/mlflow.db"
+    if "DEPLOYMENT_STATE_PATH" not in os.environ:
+        state_dir = tempfile.mkdtemp(prefix="validate_e2e_deployment_")
+        os.environ["DEPLOYMENT_STATE_PATH"] = str(Path(state_dir) / "current.json")
     print(f"Using MLFLOW_TRACKING_URI={os.environ['MLFLOW_TRACKING_URI']}\n")
 
     global _api_process
@@ -194,7 +212,9 @@ def main() -> int:
     ok &= train_model()
     ok &= check_candidate_alias()
     ok &= run_promotion()
-    ok &= start_api()
+    ok &= deploy_model()
+    if ok:
+        ok &= start_api()
     if _api_process is not None and _api_process.poll() is None:
         ok &= check_ready()
         ok &= check_predict()

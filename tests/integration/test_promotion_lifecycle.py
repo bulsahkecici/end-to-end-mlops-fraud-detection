@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import mlflow
 
+from src.api.dependencies import resolve_and_load_model
 from src.config import settings
+from src.deployment.lifecycle import deploy_champion
 from src.modeling.train import run_training
 from src.registry.promote import run_promotion_checks
 
@@ -49,7 +51,7 @@ def test_two_versions_are_rescored_on_the_same_frozen_rows(mlflow_tmp_uri, monke
 
 
 def test_sigmoid_calibrated_candidate_can_be_promoted_loaded_and_scored(
-    mlflow_tmp_uri, monkeypatch
+    mlflow_tmp_uri, monkeypatch, tmp_path
 ):
     monkeypatch.setattr(settings, "min_pr_auc", 0.0)
     monkeypatch.setattr(settings, "min_recall", 0.0)
@@ -68,14 +70,18 @@ def test_sigmoid_calibrated_candidate_can_be_promoted_loaded_and_scored(
     assert promotion["candidate_version"] == result["model_version"]
     assert result["promotion_evaluation"]["excludes_final_test"] is True
 
-    mlflow.set_tracking_uri(mlflow_tmp_uri)
-    loaded = mlflow.pyfunc.load_model(f"models:/{settings.model_name}@{settings.champion_alias}")
-    wrapper = loaded.unwrap_python_model()
+    state_path = tmp_path / "deployment" / "current.json"
+    deployment = deploy_champion(state_path=state_path, tracking_uri=mlflow_tmp_uri)
+    monkeypatch.setattr(settings, "deployment_state_path", state_path)
+    monkeypatch.setattr(settings, "mlflow_tracking_uri", mlflow_tmp_uri)
+    wrapper, loaded_state = resolve_and_load_model()
+    assert deployment.model_version == result["model_version"]
+    assert loaded_state == deployment
     assert wrapper.metadata["experiment"]["calibration_strategy"] == "sigmoid"
 
     sample = result["_debug"]["X_val_raw"].head(4).copy()
     for column in result["feature_schema"]["numeric_cols"]:
         sample[column] = sample[column].astype("float64")
-    predictions = loaded.predict(sample)
+    predictions = wrapper.predict(None, sample)
     assert len(predictions) == 4
     assert predictions["fraud_probability"].between(0.0, 1.0).all()

@@ -77,6 +77,14 @@ class Settings:
     ieee_data_dir: Path = field(init=False)
     artifacts_dir: Path = field(init=False)
     reports_dir: Path = field(init=False)
+    deployment_state_path: Path = field(
+        default_factory=lambda: Path(
+            _env_str(
+                "DEPLOYMENT_STATE_PATH",
+                str(PROJECT_ROOT / "artifacts" / "deployment" / "current.json"),
+            )
+        )
+    )
 
     # --- mlflow ------------------------------------------------------------
     mlflow_tracking_uri: str = field(

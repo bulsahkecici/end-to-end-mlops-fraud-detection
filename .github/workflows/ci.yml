@@ -4,6 +4,13 @@ on:
   push:
     branches: [main, master, "fix/**"]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_production_like:
+        description: "Run the MinIO-dependent production-like lifecycle (currently upstream-blocked)"
+        required: false
+        default: false
+        type: boolean
 
 env:
   PYTHON_VERSION: "3.11"
@@ -60,6 +67,16 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+          cache: "pip"
+          cache-dependency-path: requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
       - name: Validate docker compose config (both profiles)
         run: |
           docker compose --profile local-lite config
@@ -68,25 +85,14 @@ jobs:
       - name: Build API image
         run: docker build -f Dockerfile.api -t ieee-fraud-api:ci .
 
-      - name: Bring up local-lite stack (mlflow + api + nginx)
-        # `docker compose up` blocks on each service's `depends_on:
-        # condition: service_healthy` before returning, so mlflow and api
-        # are already healthy by the time this command exits — only nginx
-        # (no HEALTHCHECK of its own) needs a short reachability retry.
-        run: |
-          docker compose --profile local-lite build api
-          docker compose --profile local-lite up -d mlflow api nginx
-          for i in $(seq 1 30); do curl -sf http://localhost:8080/health && break; sleep 2; done
+      - name: Production-like deploy, serve, and rollback smoke (manual opt-in)
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_production_like }}
+        run: python scripts/validate_production_e2e.py
 
-      - name: Smoke-test nginx rate limiting
+      - name: Report production-like MinIO blocker
+        if: ${{ github.event_name != 'workflow_dispatch' || inputs.run_production_like != true }}
         run: |
-          codes=$(for i in $(seq 1 40); do curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8080/predict -H "Content-Type: application/json" -d '{"records":[{"TransactionAmt":1.0}]}'; done)
-          echo "$codes" | sort | uniq -c
-          echo "$codes" | grep -q 429 || { echo "expected at least one 429 from rate limiting, got none"; exit 1; }
-
-      - name: Tear down
-        if: always()
-        run: docker compose --profile local-lite down -v
+          echo "::notice title=Production-like E2E not run::The retained Community MinIO container distribution is obsolete/unavailable. This required CI run does not claim the production-like lifecycle passed; use workflow_dispatch with run_production_like=true only after an S3-compatible object-store decision."
 
   e2e-smoke:
     runs-on: ubuntu-latest

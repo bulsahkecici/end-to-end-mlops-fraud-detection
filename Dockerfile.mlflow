@@ -1,0 +1,10 @@
+FROM python:3.11.10-slim
+
+# MLflow does not publish a ghcr.io/mlflow/mlflow:v2.22.5 image. Build the
+# server from the same pinned Python base and package versions as the runtime,
+# including the Postgres/S3 drivers required by the production-like profile.
+RUN pip install --no-cache-dir \
+    mlflow==2.22.5 \
+    sqlalchemy==2.0.51 \
+    psycopg2-binary==2.9.10 \
+    boto3==1.35.90

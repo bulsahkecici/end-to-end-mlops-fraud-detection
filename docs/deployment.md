@@ -8,12 +8,13 @@ not meant to run together (both bind port 5000/8000):
 ### `local-lite` (default, no credentials)
 
 ```bash
-docker compose --profile local-lite up -d      # or: make docker-up
+docker compose --profile local-lite up -d mlflow
 ```
 
 - `mlflow`: sqlite backend store + local filesystem artifact store
   (`./mlflow_db`).
-- `api`: builds from `Dockerfile.api`, depends on `mlflow` being healthy.
+- `api`: builds from `Dockerfile.api`, depends on `mlflow` being healthy, and
+  requires a valid explicit deployment state before it becomes healthy.
 - `nginx`: rate-limited reverse proxy in front of `api`, published on
   `:8080` (see "Rate limiting" below). `api` itself stays published on
   `:8000` too, for direct/debug access.
@@ -22,7 +23,7 @@ docker compose --profile local-lite up -d      # or: make docker-up
 
 ```bash
 cp .env.example .env   # then fill in POSTGRES_PASSWORD, MINIO_ROOT_USER/PASSWORD
-docker compose --profile production-like up -d
+docker compose --profile production-like up -d postgres minio minio-init mlflow-prod
 ```
 
 - `postgres`: MLflow tracking/registry backend store.
@@ -33,6 +34,17 @@ docker compose --profile production-like up -d
   `mlflow-prod`.
 - `nginx-prod`: same rate-limiting proxy as `nginx`, in front of `api-prod`.
 
+The MLflow server image is based on `mlflow==2.22.5`, matching the Python
+runtime, and adds the pinned Postgres/S3 drivers used by this profile. Compose
+retains the repository's pre-existing public MinIO server/client image intent;
+the Community repository is archived, Community distribution has moved to
+source-only, and those `latest` container references are now obsolete and
+unavailable. Phase 4 does not build or redistribute MinIO. It also does not
+silently substitute AIStor, whose enterprise/evaluation licensing would change
+the project's product assumption. Choosing a maintained S3-compatible object
+store is a future infrastructure decision; this blocker is not expected to
+resolve automatically.
+
 Compose refuses to start `production-like` if `POSTGRES_PASSWORD`,
 `MINIO_ROOT_USER`, or `MINIO_ROOT_PASSWORD` aren't set (via `${VAR:?...}`)
 — there is no silent fallback to a blank/default credential.
@@ -41,14 +53,19 @@ Compose refuses to start `production-like` if `POSTGRES_PASSWORD`,
 
 ```bash
 make install
-make docker-up                 # starts mlflow (local-lite)
+docker compose --profile local-lite up -d mlflow
 make train-smoke                # or: make train-ieee (needs real data, see README)
 make promote                    # gates candidate -> champion
-make serve                      # or: run the api container instead
+make deploy                     # freezes champion to an immutable deployed version
+make deployment-status          # inspect exact deployed model/run/provenance
+docker compose --profile local-lite up -d --build --force-recreate api nginx
 make smoke-test                 # scripts/validate_e2e.py, end to end
 ```
 
-## Promotion is a separate, deliberate step
+The container restart/recreation is intentional. There is no background
+deployment-state polling and no alias-following hot reload.
+
+## Promotion is not deployment
 
 `src/modeling/train.py` only ever assigns the `candidate` alias to a new
 model version — nothing is served to `champion` traffic automatically.
@@ -56,13 +73,79 @@ model version — nothing is served to `champion` traffic automatically.
 in `docs/model-card.md` and only then reassigns `champion`. This is
 idempotent and safe to re-run.
 
+**PROMOTION != DEPLOYMENT.** Moving `champion` records approval intent only.
+It neither updates `artifacts/deployment/current.json` nor reloads the API.
+
+**CHAMPION ALIAS CHANGE != RUNNING MODEL CHANGE.** The deployment command
+resolves `champion` once, verifies and loads that immutable model version,
+rechecks that the alias remained stable, and atomically records the exact
+target. FastAPI reads only that record and loads
+`models:/<model-name>/<version>` at startup. An alias move by itself cannot
+change either an already-running process or the next restart's target.
+
+## Deployment state and commands
+
+The default current-state file is `artifacts/deployment/current.json` and
+immutable audit records live in `artifacts/deployment/history/`. Override the
+path for native commands with `DEPLOYMENT_STATE_PATH`; Compose reads the host
+directory from `DEPLOYMENT_STATE_DIR` and mounts it read-only at `/deployment`.
+State contains the model name/version, run ID, source alias, UTC timestamp,
+Git context when available, and the preceding deployment identity/version.
+
+```bash
+# Deploy only the current approved champion. This fails if approval is absent,
+# the registry/artifact is unavailable, or the alias moves during validation.
+python -m src.deployment.lifecycle deploy
+
+# Optional guard: still cannot deploy this version unless it is champion.
+python -m src.deployment.lifecycle deploy --expected-version 3
+
+# Inspect the exact immutable target selected for serving.
+python -m src.deployment.lifecycle inspect
+
+# Restore the immediately previous known-good deployment-history target.
+python -m src.deployment.lifecycle rollback
+```
+
+All unsafe/invalid operations exit non-zero. Each transition is validated
+before write. The current state is written through a same-directory temporary
+file, fsynced, and atomically replaced; each history event is fsynced and
+created exclusively, so an existing immutable history identity cannot be
+overwritten. A failed deploy/rollback cannot partially overwrite the current
+valid state. Re-deploying the same champion and repeating a completed rollback
+are idempotent.
+
+After `deploy` or `rollback`, explicitly recreate/restart the API, then confirm
+the immutable version and run ID at `/ready`:
+
+```bash
+docker compose --profile local-lite up -d --build --force-recreate api
+docker compose --profile local-lite up -d nginx
+curl -s http://localhost:8080/ready
+```
+
+Use `api-prod`/`nginx-prod` with the `production-like` profile. The repeatable
+isolated production-like smoke—including Postgres, MinIO bucket initialization,
+MLflow, two deployments, no-hot-swap proof, NGINX prediction, and rollback—is:
+
+```bash
+make production-e2e
+```
+
+It uses disposable credentials, free host ports, an isolated Compose project,
+temporary deployment state, and always runs `down -v` for that project. It is
+retained for an explicit future object-store decision, but currently exits
+non-zero at the obsolete Community MinIO dependency and must not be interpreted
+as a production-like PASS.
+
 ## Scaling / process model
 
-`Dockerfile.api`'s default `CMD` runs uvicorn with `--workers 2`. Each
-worker process loads its own copy of the model into memory at startup
-(`src/api/dependencies.py`'s `lifespan` hook) — there is no shared model
-cache across workers. Increase `--workers` for more throughput on a larger
-host; each additional worker costs roughly one model's worth of RAM.
+`Dockerfile.api` runs one Uvicorn worker per container. The existing
+`prometheus_client` metrics are process-local, so multiple workers would
+produce incomplete/conflicting metric views without Prometheus multiprocess
+configuration. Scale horizontally with additional containers behind a shared
+proxy/load balancer when needed; multiprocess metrics are deliberately outside
+Phase 4.
 
 ## Security notes
 

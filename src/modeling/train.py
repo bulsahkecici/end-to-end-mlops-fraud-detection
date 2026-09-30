@@ -1,9 +1,10 @@
 """End-to-end training entrypoint.
 
-Pipeline: ingest -> validate -> temporal split -> fit preprocessing+model
-(train split only) -> evaluate + select threshold (validation split) ->
-final evaluation (test split) -> log a single MLflow pyfunc artifact ->
-register a new model version under the ``candidate`` alias.
+Pipeline: ingest -> validate -> temporal split -> separate selection-validation
+from promotion evaluation -> fit preprocessing+model (train split only) ->
+select threshold (selection-validation only) -> final test reporting -> log a
+single MLflow pyfunc artifact plus frozen promotion rows -> register a new
+model version under the ``candidate`` alias.
 
 The new version is deliberately NOT promoted to ``champion``/production
 here — see ``src/registry/promote.py`` for the gated promotion step.
@@ -34,13 +35,18 @@ from sklearn.pipeline import Pipeline
 
 from src.config import settings
 from src.data.ingest import load_train, make_synthetic_transactions
-from src.data.validation import validate_raw_transactions
+from src.data.validation import summarize_split, validate_raw_transactions
 from src.features.pipeline import ColumnAligner, build_preprocessor, infer_schema
 from src.modeling.evaluate import compute_metrics
 from src.modeling.mlflow_wrapper import FraudModelWrapper
+from src.modeling.promotion_evaluation import (
+    ARTIFACT_DIR,
+    split_selection_and_promotion,
+    write_evaluation_artifact,
+)
 from src.modeling.threshold import select_threshold
 from src.modeling.validation import split_data
-from src.utils.repro import fingerprint_file, get_env_info, get_git_info, set_global_seed
+from src.utils.repro import fingerprint_file_contents, get_env_info, get_git_info, set_global_seed
 
 logger = logging.getLogger(__name__)
 
@@ -97,7 +103,7 @@ def run_training(
 
     validate_raw_transactions(df, require_target=True)
 
-    train_df, val_df, test_df, split_summary = split_data(
+    train_df, validation_pool, test_df, outer_split_summary = split_data(
         df,
         strategy=split_strategy,
         train_ratio=settings.train_ratio,
@@ -105,6 +111,15 @@ def run_training(
         test_ratio=settings.test_ratio,
         seed=seed,
     )
+    val_df, promotion_df = split_selection_and_promotion(
+        validation_pool, strategy=split_strategy, seed=seed
+    )
+    split_summary = {
+        "train": outer_split_summary["train"],
+        "validation": summarize_split(val_df, "validation"),
+        "promotion_evaluation": summarize_split(promotion_df, "promotion_evaluation"),
+        "test": outer_split_summary["test"],
+    }
     for name, summary in split_summary.items():
         logger.info("split=%s summary=%s", name, summary)
 
@@ -162,41 +177,61 @@ def run_training(
     test_proba = pipeline.predict_proba(X_test_raw)[:, 1]
     test_metrics = compute_metrics(y_test, test_proba, threshold)
 
-    metadata = {
-        "model_name": settings.model_name,
-        "feature_schema": {
-            "numeric_cols": schema.numeric_cols,
-            "categorical_cols": schema.categorical_cols,
-            "dropped_cols": schema.dropped_cols,
-        },
-        "threshold": threshold,
-        "threshold_strategy": threshold_strategy,
-        "dataset": {
-            "data_source": data_source,
-            "split_strategy": split_strategy,
-            "sampling_strategy": sampling_strategy,
-            "sample_rows": sample_rows,
-            "splits": split_summary,
-        },
-        "cost": {
-            "false_negative_cost": settings.false_negative_cost,
-            "false_positive_cost": settings.false_positive_cost,
-        },
-        "git": get_git_info(settings.project_root),
-        "env": get_env_info(),
-        "data_fingerprint": (
-            {f.name: fingerprint_file(f) for f in source_files}
-            if source_files
-            else {"source": "synthetic", "n_rows": str(n_synthetic)}
-        ),
-        "created_at": datetime.now(UTC).isoformat(),
-        "random_seed": seed,
-    }
+    source_data_fingerprint: dict[str, object] = (
+        {f.name: fingerprint_file_contents(f) for f in source_files}
+        if source_files
+        else {
+            "source": "synthetic",
+            "generator": "make_synthetic_transactions:v1",
+            "n_rows": n_synthetic,
+            "seed": seed,
+        }
+    )
 
     mlflow.set_tracking_uri(tracking_uri or settings.mlflow_tracking_uri)
     mlflow.set_experiment(settings.experiment_name)
 
-    with mlflow.start_run(run_name=f"ieee-lgbm-{data_source}") as run:
+    with (
+        tempfile.TemporaryDirectory() as tmp,
+        mlflow.start_run(run_name=f"ieee-lgbm-{data_source}") as run,
+    ):
+        temporary_dir = Path(tmp)
+        evaluation_dir = temporary_dir / ARTIFACT_DIR
+        promotion_manifest = write_evaluation_artifact(
+            promotion_df,
+            evaluation_dir,
+            data_source=data_source,
+            split_strategy=split_strategy,
+            source_data_fingerprint=source_data_fingerprint,
+            random_seed=seed,
+        )
+        metadata = {
+            "model_name": settings.model_name,
+            "feature_schema": {
+                "numeric_cols": schema.numeric_cols,
+                "categorical_cols": schema.categorical_cols,
+                "dropped_cols": schema.dropped_cols,
+            },
+            "threshold": threshold,
+            "threshold_strategy": threshold_strategy,
+            "dataset": {
+                "data_source": data_source,
+                "split_strategy": split_strategy,
+                "sampling_strategy": sampling_strategy,
+                "sample_rows": sample_rows,
+                "splits": split_summary,
+            },
+            "promotion_evaluation": promotion_manifest,
+            "cost": {
+                "false_negative_cost": settings.false_negative_cost,
+                "false_positive_cost": settings.false_positive_cost,
+            },
+            "git": get_git_info(settings.project_root),
+            "env": get_env_info(),
+            "data_fingerprint": source_data_fingerprint,
+            "created_at": datetime.now(UTC).isoformat(),
+            "random_seed": seed,
+        }
         mlflow.log_params(
             {
                 **{f"lgbm_{k}": v for k, v in params.items()},
@@ -211,6 +246,7 @@ def run_training(
                 "false_positive_cost": settings.false_positive_cost,
                 "n_train": len(train_df),
                 "n_val": len(val_df),
+                "n_promotion_evaluation": len(promotion_df),
                 "n_test": len(test_df),
             }
         )
@@ -224,6 +260,7 @@ def run_training(
         mlflow.log_dict(split_summary, "split_summary.json")
         mlflow.log_dict(val_metrics, "val_metrics.json")
         mlflow.log_dict(test_metrics, "test_metrics.json")
+        mlflow.log_artifacts(str(evaluation_dir), artifact_path=ARTIFACT_DIR)
 
         input_example = X_train_raw[schema.use_cols].head(5).reset_index(drop=True)
         # Match the declared `double` dtype in input_schema below exactly —
@@ -253,21 +290,20 @@ def run_training(
         output_schema = mlflow.models.infer_signature(input_example, example_output).outputs
         signature = ModelSignature(inputs=input_schema, outputs=output_schema)
 
-        with tempfile.TemporaryDirectory() as tmp:
-            pipeline_path = Path(tmp) / "pipeline.joblib"
-            joblib.dump(pipeline, pipeline_path)
-            metadata_path = Path(tmp) / "metadata.json"
-            metadata_path.write_text(json.dumps(metadata, indent=2, default=str))
+        pipeline_path = temporary_dir / "pipeline.joblib"
+        joblib.dump(pipeline, pipeline_path)
+        metadata_path = temporary_dir / "metadata.json"
+        metadata_path.write_text(json.dumps(metadata, indent=2, default=str))
 
-            mlflow.pyfunc.log_model(
-                artifact_path="model",
-                python_model=FraudModelWrapper(),
-                artifacts={"pipeline": str(pipeline_path), "metadata": str(metadata_path)},
-                code_paths=[str(settings.project_root / "src")],
-                signature=signature,
-                input_example=input_example,
-                registered_model_name=settings.model_name if register else None,
-            )
+        mlflow.pyfunc.log_model(
+            artifact_path="model",
+            python_model=FraudModelWrapper(),
+            artifacts={"pipeline": str(pipeline_path), "metadata": str(metadata_path)},
+            code_paths=[str(settings.project_root / "src")],
+            signature=signature,
+            input_example=input_example,
+            registered_model_name=settings.model_name if register else None,
+        )
 
         version = None
         if register:
@@ -294,6 +330,7 @@ def run_training(
             "val_metrics": val_metrics,
             "test_metrics": test_metrics,
             "feature_schema": metadata["feature_schema"],
+            "promotion_evaluation": promotion_manifest,
         }
         if debug_return:
             # Test-only escape hatch: exposes the in-memory fitted pipeline
@@ -304,6 +341,8 @@ def run_training(
                 "X_val_raw": X_val_raw,
                 "y_val": y_val,
                 "val_proba": val_proba,
+                "promotion_rows": promotion_df,
+                "test_rows": test_df,
             }
     return result
 

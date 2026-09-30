@@ -67,3 +67,15 @@ def fingerprint_file(path: Path | str) -> str | None:
     stat = p.stat()
     raw = f"{p.name}:{stat.st_size}:{int(stat.st_mtime)}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def fingerprint_file_contents(path: Path | str) -> str | None:
+    """Return a reproducible SHA-256 of the complete file contents."""
+    p = Path(path)
+    if not p.exists():
+        return None
+    digest = hashlib.sha256()
+    with p.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()

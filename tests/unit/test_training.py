@@ -156,3 +156,19 @@ def test_run_training_synthetic_end_to_end(mlflow_tmp_uri):
     client = mlflow.MlflowClient()
     mv = client.get_model_version_by_alias("ieee_fraud_lgbm", "candidate")
     assert str(mv.version) == result["model_version"]
+
+
+def test_promotion_evaluation_is_distinct_from_final_test(mlflow_tmp_uri):
+    result = run_training(
+        data_source="synthetic",
+        n_synthetic=800,
+        seed=43,
+        tracking_uri=mlflow_tmp_uri,
+        register=False,
+        debug_return=True,
+    )
+    promotion = result["_debug"]["promotion_rows"]
+    final_test = result["_debug"]["test_rows"]
+    assert set(promotion["TransactionID"]).isdisjoint(final_test["TransactionID"])
+    assert result["promotion_evaluation"]["derived_from"] == "validation_pool"
+    assert result["promotion_evaluation"]["excludes_final_test"] is True

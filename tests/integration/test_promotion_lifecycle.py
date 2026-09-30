@@ -46,3 +46,36 @@ def test_two_versions_are_rescored_on_the_same_frozen_rows(mlflow_tmp_uri, monke
         settings.model_name, settings.champion_alias
     )
     assert str(champion.version) == second["model_version"]
+
+
+def test_sigmoid_calibrated_candidate_can_be_promoted_loaded_and_scored(
+    mlflow_tmp_uri, monkeypatch
+):
+    monkeypatch.setattr(settings, "min_pr_auc", 0.0)
+    monkeypatch.setattr(settings, "min_recall", 0.0)
+
+    result = run_training(
+        data_source="synthetic",
+        n_synthetic=4000,
+        seed=117,
+        tracking_uri=mlflow_tmp_uri,
+        calibration_strategy="sigmoid",
+        debug_return=True,
+    )
+    promotion = run_promotion_checks(tracking_uri=mlflow_tmp_uri)
+
+    assert promotion["promoted"] is True
+    assert promotion["candidate_version"] == result["model_version"]
+    assert result["promotion_evaluation"]["excludes_final_test"] is True
+
+    mlflow.set_tracking_uri(mlflow_tmp_uri)
+    loaded = mlflow.pyfunc.load_model(f"models:/{settings.model_name}@{settings.champion_alias}")
+    wrapper = loaded.unwrap_python_model()
+    assert wrapper.metadata["experiment"]["calibration_strategy"] == "sigmoid"
+
+    sample = result["_debug"]["X_val_raw"].head(4).copy()
+    for column in result["feature_schema"]["numeric_cols"]:
+        sample[column] = sample[column].astype("float64")
+    predictions = loaded.predict(sample)
+    assert len(predictions) == 4
+    assert predictions["fraud_probability"].between(0.0, 1.0).all()

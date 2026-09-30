@@ -1,10 +1,18 @@
 from __future__ import annotations
 
+import mlflow
 import numpy as np
 import pytest
+from sklearn.linear_model import LogisticRegression
 
 from src.data.ingest import make_synthetic_transactions
+from src.modeling.calibration import (
+    fit_probability_calibrator,
+    split_calibration_and_selection,
+)
 from src.modeling.evaluate import compute_metrics
+from src.modeling.experiment import fingerprint_rows
+from src.modeling.final_test import evaluate_final_test
 from src.modeling.threshold import (
     expected_cost,
     find_best_f1_threshold,
@@ -57,6 +65,13 @@ def test_split_data_rejects_unknown_strategy():
         split_data(df, "bogus", 0.7, 0.15, 0.15, seed=1)
 
 
+def test_calibration_and_selection_rows_are_temporally_ordered_and_disjoint():
+    rows = make_synthetic_transactions(n=100, seed=8)
+    calibration, selection = split_calibration_and_selection(rows, "temporal", seed=8)
+    assert calibration["TransactionDT"].max() <= selection["TransactionDT"].min()
+    assert set(calibration["TransactionID"]).isdisjoint(selection["TransactionID"])
+
+
 # --- metrics ---------------------------------------------------------------
 
 
@@ -64,7 +79,7 @@ def test_compute_metrics_keys_and_ranges():
     rng = np.random.default_rng(0)
     y_true = rng.binomial(1, 0.1, 200)
     y_proba = rng.random(200)
-    metrics = compute_metrics(y_true, y_proba, threshold=0.5)
+    metrics = compute_metrics(y_true, y_proba, threshold=0.5, fn_cost=25.0, fp_cost=1.0)
     for key in (
         "roc_auc",
         "pr_auc",
@@ -74,12 +89,31 @@ def test_compute_metrics_keys_and_ranges():
         "log_loss",
         "brier_score",
         "fraud_rate",
+        "expected_cost",
+        "expected_cost_per_sample",
     ):
         assert key in metrics
     assert 0.0 <= metrics["precision"] <= 1.0
     assert 0.0 <= metrics["recall"] <= 1.0
     cm = metrics["confusion_matrix"]
     assert cm["tn"] + cm["fp"] + cm["fn"] + cm["tp"] == 200
+
+
+def test_selection_fingerprint_is_reproducible_and_order_sensitive():
+    rows = make_synthetic_transactions(n=20, seed=7)
+    assert fingerprint_rows(rows) == fingerprint_rows(rows.copy())
+    assert fingerprint_rows(rows) != fingerprint_rows(rows.iloc[::-1])
+
+
+@pytest.mark.parametrize("strategy", ["sigmoid", "isotonic"])
+def test_probability_calibration_is_fitted_without_external_state(strategy):
+    X = np.arange(80, dtype=float).reshape(-1, 1)
+    y = (X[:, 0] > 55).astype(int)
+    base = LogisticRegression().fit(X, y)
+    calibrated = fit_probability_calibrator(base, X, y, strategy=strategy, seed=3)
+    probability = calibrated.predict_proba(X)[:, 1]
+    assert ((probability >= 0.0) & (probability <= 1.0)).all()
+    assert probability.shape == (80,)
 
 
 # --- threshold strategies ---------------------------------------------------
@@ -149,13 +183,21 @@ def test_run_training_synthetic_end_to_end(mlflow_tmp_uri):
     )
     assert result["feature_schema"]["numeric_cols"]
     assert result["feature_schema"]["categorical_cols"]
-
-    import mlflow
+    assert "test_metrics" not in result
+    assert result["experiment"]["selection_evaluation"]["excludes_final_test"] is True
 
     mlflow.set_tracking_uri(mlflow_tmp_uri)
     client = mlflow.MlflowClient()
     mv = client.get_model_version_by_alias("ieee_fraud_lgbm", "candidate")
     assert str(mv.version) == result["model_version"]
+    wrapper = mlflow.pyfunc.load_model(
+        f"models:/{result['model_name']}@candidate"
+    ).unwrap_python_model()
+    reserved_test = wrapper.metadata["dataset"]["splits"]["test"]
+    assert reserved_test["reserved"] is True
+    assert "fraud_rate" not in reserved_test
+    root_artifacts = {item.path for item in client.list_artifacts(result["run_id"])}
+    assert "test_metrics.json" not in root_artifacts
 
 
 def test_promotion_evaluation_is_distinct_from_final_test(mlflow_tmp_uri):
@@ -168,7 +210,23 @@ def test_promotion_evaluation_is_distinct_from_final_test(mlflow_tmp_uri):
         debug_return=True,
     )
     promotion = result["_debug"]["promotion_rows"]
-    final_test = result["_debug"]["test_rows"]
+    rows = make_synthetic_transactions(n=800, seed=43)
+    _, _, final_test, _ = split_data(rows, "temporal", 0.7, 0.15, 0.15, seed=43)
     assert set(promotion["TransactionID"]).isdisjoint(final_test["TransactionID"])
     assert result["promotion_evaluation"]["derived_from"] == "validation_pool"
     assert result["promotion_evaluation"]["excludes_final_test"] is True
+
+
+def test_final_test_reporting_is_explicit_and_synthetic_labeled(mlflow_tmp_uri):
+    result = run_training(
+        data_source="synthetic",
+        n_synthetic=800,
+        seed=44,
+        tracking_uri=mlflow_tmp_uri,
+        register=False,
+    )
+    report = evaluate_final_test(f"runs:/{result['run_id']}/model", tracking_uri=mlflow_tmp_uri)
+    assert report["purpose"] == "final_test_release_report"
+    assert report["evidence_label"] == "synthetic_plumbing_only"
+    assert report["must_not_be_used_for_model_selection_or_promotion"] is True
+    assert report["metrics"]["threshold"] == result["threshold"]

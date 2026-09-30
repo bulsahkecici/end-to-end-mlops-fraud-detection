@@ -2,9 +2,10 @@
 
 Pipeline: ingest -> validate -> temporal split -> separate selection-validation
 from promotion evaluation -> fit preprocessing+model (train split only) ->
-select threshold (selection-validation only) -> final test reporting -> log a
-single MLflow pyfunc artifact plus frozen promotion rows -> register a new
-model version under the ``candidate`` alias.
+optional calibration and threshold selection (selection-validation only) ->
+log a single MLflow pyfunc artifact plus frozen promotion rows -> register a
+new model version under the ``candidate`` alias. Final-test reporting is a
+separate explicit operation in ``src.modeling.final_test``.
 
 The new version is deliberately NOT promoted to ``champion``/production
 here — see ``src/registry/promote.py`` for the gated promotion step.
@@ -36,8 +37,18 @@ from sklearn.pipeline import Pipeline
 from src.config import settings
 from src.data.ingest import load_train, make_synthetic_transactions
 from src.data.validation import summarize_split, validate_raw_transactions
-from src.features.pipeline import ColumnAligner, build_preprocessor, infer_schema
+from src.features.pipeline import (
+    BASELINE_CATEGORICAL_STRATEGY,
+    ColumnAligner,
+    build_preprocessor,
+    infer_schema,
+)
+from src.modeling.calibration import (
+    fit_probability_calibrator,
+    split_calibration_and_selection,
+)
 from src.modeling.evaluate import compute_metrics
+from src.modeling.experiment import build_experiment_record
 from src.modeling.mlflow_wrapper import FraudModelWrapper
 from src.modeling.promotion_evaluation import (
     ARTIFACT_DIR,
@@ -79,6 +90,10 @@ def run_training(
     tracking_uri: str | None = None,
     register: bool = True,
     lgbm_overrides: dict | None = None,
+    categorical_strategy: str = BASELINE_CATEGORICAL_STRATEGY,
+    calibration_strategy: str = "none",
+    experiment_variant_id: str | None = None,
+    cat_nunique_max: int = 200,
     debug_return: bool = False,
 ) -> dict:
     """Run the full training pipeline once and return a result summary dict."""
@@ -110,12 +125,18 @@ def run_training(
         val_ratio=settings.val_ratio,
         test_ratio=settings.test_ratio,
         seed=seed,
+        summarize_final_test=False,
     )
-    val_df, promotion_df = split_selection_and_promotion(
+    selection_pool, promotion_df = split_selection_and_promotion(
         validation_pool, strategy=split_strategy, seed=seed
+    )
+    calibration_df, val_df = split_calibration_and_selection(
+        selection_pool, strategy=split_strategy, seed=seed
     )
     split_summary = {
         "train": outer_split_summary["train"],
+        "calibration_fit": summarize_split(calibration_df, "calibration_fit"),
+        "selection_validation": summarize_split(val_df, "selection_validation"),
         "validation": summarize_split(val_df, "validation"),
         "promotion_evaluation": summarize_split(promotion_df, "promotion_evaluation"),
         "test": outer_split_summary["test"],
@@ -124,22 +145,28 @@ def run_training(
         logger.info("split=%s summary=%s", name, summary)
 
     y_train = train_df[TARGET_COL].astype(int)
+    y_calibration = calibration_df[TARGET_COL].astype(int)
     y_val = val_df[TARGET_COL].astype(int)
-    y_test = test_df[TARGET_COL].astype(int)
     X_train_raw = train_df.drop(columns=[TARGET_COL])
+    X_calibration_raw = calibration_df.drop(columns=[TARGET_COL])
     X_val_raw = val_df.drop(columns=[TARGET_COL])
-    X_test_raw = test_df.drop(columns=[TARGET_COL])
 
     # Schema + all fitting happens on the TRAIN split only -> no leakage.
-    schema = infer_schema(X_train_raw)
+    schema = infer_schema(
+        X_train_raw,
+        cat_nunique_max=cat_nunique_max,
+        categorical_strategy=categorical_strategy,
+    )
     aligner = ColumnAligner(
         numeric_cols=schema.numeric_cols, categorical_cols=schema.categorical_cols
     ).fit(X_train_raw)
     X_train_aligned = aligner.transform(X_train_raw)
+    X_calibration_aligned = aligner.transform(X_calibration_raw)
     X_val_aligned = aligner.transform(X_val_raw)
 
     preprocessor = build_preprocessor(schema)
     X_train_t = preprocessor.fit_transform(X_train_aligned)
+    X_calibration_t = preprocessor.transform(X_calibration_aligned)
     X_val_t = preprocessor.transform(X_val_aligned)
 
     params = default_lgbm_params(seed)
@@ -149,16 +176,45 @@ def run_training(
     classifier.fit(
         X_train_t,
         y_train,
-        eval_set=[(X_val_t, y_val)],
+        eval_set=[(X_calibration_t, y_calibration)],
         eval_metric="auc",
         callbacks=[lgb.early_stopping(stopping_rounds=20, verbose=False), lgb.log_evaluation(0)],
+    )
+
+    uncalibrated_val_proba = classifier.predict_proba(X_val_t)[:, 1]
+    uncalibrated_threshold_info = select_threshold(
+        y_val,
+        uncalibrated_val_proba,
+        strategy=threshold_strategy,
+        fixed_threshold=settings.fixed_threshold,
+        target_recall=settings.target_recall,
+        fn_cost=settings.false_negative_cost,
+        fp_cost=settings.false_positive_cost,
+    )
+    uncalibrated_val_metrics = compute_metrics(
+        y_val,
+        uncalibrated_val_proba,
+        uncalibrated_threshold_info["threshold"],
+        fn_cost=settings.false_negative_cost,
+        fp_cost=settings.false_positive_cost,
+    )
+    fitted_classifier = fit_probability_calibrator(
+        classifier,
+        X_calibration_t,
+        y_calibration,
+        strategy=calibration_strategy,
+        seed=seed,
     )
 
     # Assemble the final pipeline from already-fitted steps: Pipeline.predict
     # simply chains transform/predict in order, it does not require having
     # been fit via Pipeline.fit() itself.
     pipeline = Pipeline(
-        steps=[("aligner", aligner), ("preprocessor", preprocessor), ("classifier", classifier)]
+        steps=[
+            ("aligner", aligner),
+            ("preprocessor", preprocessor),
+            ("classifier", fitted_classifier),
+        ]
     )
 
     val_proba = pipeline.predict_proba(X_val_raw)[:, 1]
@@ -173,9 +229,13 @@ def run_training(
     )
     threshold = threshold_info["threshold"]
 
-    val_metrics = compute_metrics(y_val, val_proba, threshold)
-    test_proba = pipeline.predict_proba(X_test_raw)[:, 1]
-    test_metrics = compute_metrics(y_test, test_proba, threshold)
+    val_metrics = compute_metrics(
+        y_val,
+        val_proba,
+        threshold,
+        fn_cost=settings.false_negative_cost,
+        fp_cost=settings.false_positive_cost,
+    )
 
     source_data_fingerprint: dict[str, object] = (
         {f.name: fingerprint_file_contents(f) for f in source_files}
@@ -186,6 +246,18 @@ def run_training(
             "n_rows": n_synthetic,
             "seed": seed,
         }
+    )
+    variant_id = experiment_variant_id or (f"lgbm-{categorical_strategy}-{calibration_strategy}")
+    experiment = build_experiment_record(
+        variant_id=variant_id,
+        categorical_strategy=categorical_strategy,
+        calibration_strategy=calibration_strategy,
+        model_params=params,
+        random_seed=seed,
+        split_strategy=split_strategy,
+        calibration_fit_rows=calibration_df,
+        selection_rows=val_df,
+        source_data_fingerprint=source_data_fingerprint,
     )
 
     mlflow.set_tracking_uri(tracking_uri or settings.mlflow_tracking_uri)
@@ -210,6 +282,7 @@ def run_training(
             "feature_schema": {
                 "numeric_cols": schema.numeric_cols,
                 "categorical_cols": schema.categorical_cols,
+                "high_cardinality_cols": schema.high_cardinality_cols,
                 "dropped_cols": schema.dropped_cols,
             },
             "threshold": threshold,
@@ -219,8 +292,14 @@ def run_training(
                 "split_strategy": split_strategy,
                 "sampling_strategy": sampling_strategy,
                 "sample_rows": sample_rows,
+                "split_ratios": {
+                    "train": settings.train_ratio,
+                    "validation": settings.val_ratio,
+                    "test": settings.test_ratio,
+                },
                 "splits": split_summary,
             },
+            "experiment": experiment,
             "promotion_evaluation": promotion_manifest,
             "cost": {
                 "false_negative_cost": settings.false_negative_cost,
@@ -240,11 +319,20 @@ def run_training(
                 "sample_rows": str(sample_rows) if sample_rows is not None else "all",
                 "split_strategy": split_strategy,
                 "seed": seed,
+                "experiment_variant_id": variant_id,
+                "feature_strategy": experiment["feature_strategy"],
+                "categorical_strategy": categorical_strategy,
+                "calibration_strategy": calibration_strategy,
+                "selection_evaluation_fingerprint": experiment["selection_evaluation"][
+                    "fingerprint"
+                ],
                 "threshold_strategy": threshold_strategy,
                 "threshold": threshold,
                 "false_negative_cost": settings.false_negative_cost,
                 "false_positive_cost": settings.false_positive_cost,
                 "n_train": len(train_df),
+                "n_calibration_fit": len(calibration_df),
+                "n_selection_validation": len(val_df),
                 "n_val": len(val_df),
                 "n_promotion_evaluation": len(promotion_df),
                 "n_test": len(test_df),
@@ -253,13 +341,14 @@ def run_training(
         for k, v in val_metrics.items():
             if k != "confusion_matrix":
                 mlflow.log_metric(f"val_{k}", v)
-        for k, v in test_metrics.items():
+        for k, v in uncalibrated_val_metrics.items():
             if k != "confusion_matrix":
-                mlflow.log_metric(f"test_{k}", v)
+                mlflow.log_metric(f"val_uncalibrated_{k}", v)
         mlflow.log_dict(metadata, "metadata.json")
         mlflow.log_dict(split_summary, "split_summary.json")
         mlflow.log_dict(val_metrics, "val_metrics.json")
-        mlflow.log_dict(test_metrics, "test_metrics.json")
+        mlflow.log_dict(uncalibrated_val_metrics, "val_uncalibrated_metrics.json")
+        mlflow.log_dict(experiment, "experiment.json")
         mlflow.log_artifacts(str(evaluation_dir), artifact_path=ARTIFACT_DIR)
 
         input_example = X_train_raw[schema.use_cols].head(5).reset_index(drop=True)
@@ -328,8 +417,9 @@ def run_training(
             "threshold": threshold,
             "threshold_strategy": threshold_strategy,
             "val_metrics": val_metrics,
-            "test_metrics": test_metrics,
+            "uncalibrated_val_metrics": uncalibrated_val_metrics,
             "feature_schema": metadata["feature_schema"],
+            "experiment": experiment,
             "promotion_evaluation": promotion_manifest,
         }
         if debug_return:
@@ -342,7 +432,6 @@ def run_training(
                 "y_val": y_val,
                 "val_proba": val_proba,
                 "promotion_rows": promotion_df,
-                "test_rows": test_df,
             }
     return result
 
@@ -353,6 +442,15 @@ def main() -> None:
     parser.add_argument("--sample-rows", type=int, default=None)
     parser.add_argument("--n-synthetic", type=int, default=4000)
     parser.add_argument("--seed", type=int, default=None)
+    parser.add_argument(
+        "--categorical-strategy",
+        choices=["ordinal_drop_high_cardinality", "frequency_high_cardinality"],
+        default=BASELINE_CATEGORICAL_STRATEGY,
+    )
+    parser.add_argument(
+        "--calibration-strategy", choices=["none", "sigmoid", "isotonic"], default="none"
+    )
+    parser.add_argument("--experiment-variant-id", default=None)
     parser.add_argument("--no-register", action="store_true")
     args = parser.parse_args()
 
@@ -364,6 +462,9 @@ def main() -> None:
         sample_rows=args.sample_rows,
         n_synthetic=args.n_synthetic,
         seed=args.seed,
+        categorical_strategy=args.categorical_strategy,
+        calibration_strategy=args.calibration_strategy,
+        experiment_variant_id=args.experiment_variant_id,
         register=not args.no_register,
     )
     print(json.dumps(result, indent=2, default=str))

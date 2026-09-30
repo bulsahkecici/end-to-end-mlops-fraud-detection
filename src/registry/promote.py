@@ -188,6 +188,12 @@ def run_promotion_checks(
             client.set_registered_model_alias(
                 model_name, settings.champion_alias, candidate_version
             )
+            _record(
+                checks,
+                "champion_alias_updated",
+                True,
+                f"{settings.champion_alias} -> version={candidate_version}",
+            )
             logger.info(
                 "Promoted %s version %s to alias '%s'",
                 model_name,

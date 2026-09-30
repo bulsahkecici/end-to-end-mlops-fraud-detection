@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from types import SimpleNamespace
 
 import mlflow
@@ -34,8 +36,17 @@ def test_promote_first_model_with_good_metrics_succeeds(mlflow_tmp_uri, monkeypa
     assert result["comparison"]["evaluation"]["fingerprint"]
     assert result["comparison"]["candidate"]["metrics"]["n_samples"] > 0
     assert result["deployment_changed"] is False
+    assert result["checks"]["champion_alias_updated"] == {
+        "passed": True,
+        "detail": f"{settings.champion_alias} -> version={result['candidate_version']}",
+    }
     artifacts = client.list_artifacts(result["comparison"]["candidate"]["run_id"], "promotion")
     assert any(item.path == "promotion/promotion_decision.json" for item in artifacts)
+    trace_path = client.download_artifacts(
+        result["comparison"]["candidate"]["run_id"], "promotion/promotion_decision.json"
+    )
+    trace = json.loads(Path(trace_path).read_text())
+    assert trace["checks"]["champion_alias_updated"]["passed"] is True
 
 
 def test_promote_blocks_when_pr_auc_gate_fails(mlflow_tmp_uri, monkeypatch):

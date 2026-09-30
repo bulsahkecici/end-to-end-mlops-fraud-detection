@@ -181,9 +181,15 @@ def write_evaluation_artifact(
     return manifest
 
 
-def evidence_identity(manifest: dict[str, Any]) -> dict[str, Any]:
-    """Return every manifest field that must match across model versions."""
-    required = (
+def semantic_evidence_identity(manifest: dict[str, Any]) -> dict[str, Any]:
+    """Validate a manifest and return only cross-run semantic identity fields.
+
+    ``artifact_sha256`` is deliberately required and validated here, but is
+    not part of the returned identity.  It protects one run's artifact bytes;
+    it does not define whether two independently written artifacts contain the
+    same canonical evaluation dataset.
+    """
+    semantic_fields = (
         "format_version",
         "purpose",
         "derived_from",
@@ -192,7 +198,6 @@ def evidence_identity(manifest: dict[str, Any]) -> dict[str, Any]:
         "dataset_version",
         "fingerprint",
         "fingerprint_algorithm",
-        "artifact_sha256",
         "row_count",
         "target_distribution",
         "time_boundaries",
@@ -201,6 +206,7 @@ def evidence_identity(manifest: dict[str, Any]) -> dict[str, Any]:
         "source_data_fingerprint",
         "split_strategy",
     )
+    required = (*semantic_fields, "artifact_sha256")
     missing = [key for key in required if key not in manifest]
     if missing:
         raise PromotionEvaluationError(f"promotion manifest missing fields: {missing}")
@@ -230,12 +236,12 @@ def evidence_identity(manifest: dict[str, Any]) -> dict[str, Any]:
         raise PromotionEvaluationError("manifest source data fingerprint is incomplete")
     if not isinstance(manifest["row_count"], int) or manifest["row_count"] <= 0:
         raise PromotionEvaluationError("manifest row count is invalid")
-    return {key: manifest[key] for key in required}
+    return {key: manifest[key] for key in semantic_fields}
 
 
 def load_and_verify_evaluation(data_path: Path, manifest: dict[str, Any]) -> pd.DataFrame:
     """Load an artifact only after its bytes and declared identity agree."""
-    evidence_identity(manifest)
+    semantic_evidence_identity(manifest)
     if not data_path.is_file():
         raise PromotionEvaluationError(f"promotion evaluation artifact missing: {data_path}")
     actual_artifact_sha256 = _sha256_file(data_path)

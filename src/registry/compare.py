@@ -20,8 +20,8 @@ from src.modeling.evaluate import compute_metrics
 from src.modeling.promotion_evaluation import (
     TARGET_COL,
     PromotionEvaluationError,
-    evidence_identity,
     load_and_verify_evaluation,
+    semantic_evidence_identity,
 )
 from src.modeling.threshold import expected_cost
 
@@ -89,7 +89,7 @@ def _manifest(metadata: dict[str, Any], version: str) -> dict[str, Any]:
             f"model version {version} is missing promotion evaluation evidence"
         )
     try:
-        evidence_identity(manifest)
+        semantic_evidence_identity(manifest)
     except PromotionEvaluationError as exc:
         raise PromotionComparisonError(f"model version {version}: {exc}") from exc
     return manifest
@@ -250,7 +250,9 @@ def compare_model_versions(
         if champion is not None:
             _, champion_wrapper, champion_metadata = _load_version(model_name, champion["version"])
             champion_manifest = _manifest(champion_metadata, champion["version"])
-            if evidence_identity(candidate_manifest) != evidence_identity(champion_manifest):
+            if semantic_evidence_identity(candidate_manifest) != semantic_evidence_identity(
+                champion_manifest
+            ):
                 raise PromotionComparisonError(
                     "candidate and champion promotion evaluation evidence does not match"
                 )
@@ -287,7 +289,7 @@ def compare_model_versions(
                 champion_wrapper, champion_metadata, rows, champion["version"]
             )
 
-        report["evaluation"] = evidence_identity(candidate_manifest)
+        report["evaluation"] = semantic_evidence_identity(candidate_manifest)
         absolute_pr = candidate["metrics"]["pr_auc"] >= settings.min_pr_auc
         absolute_recall = candidate["metrics"]["recall"] >= settings.min_recall
         report["gates"]["min_pr_auc"] = {

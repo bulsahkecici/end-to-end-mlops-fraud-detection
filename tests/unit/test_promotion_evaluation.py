@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hashlib
 import shutil
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -9,12 +11,12 @@ import pytest
 from src.modeling.promotion_evaluation import (
     DATA_FILE,
     PromotionEvaluationError,
-    evidence_identity,
     load_and_verify_evaluation,
+    semantic_evidence_identity,
     split_selection_and_promotion,
     write_evaluation_artifact,
 )
-from src.registry.compare import PromotionComparisonError, _score_model
+from src.registry.compare import PromotionComparisonError, _score_model, compare_model_versions
 
 
 def _rows() -> pd.DataFrame:
@@ -39,39 +41,81 @@ def _write(rows: pd.DataFrame, path):
     )
 
 
+def _file_sha256(path) -> str:
+    return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _compare_manifests(monkeypatch, candidate_manifest, champion_manifest):
+    candidate = SimpleNamespace(version="2", run_id="candidate-run")
+    champion = SimpleNamespace(version="1", run_id="champion-run")
+
+    def load_version(_model_name, version):
+        manifest = candidate_manifest if version == "2" else champion_manifest
+        return None, object(), {"promotion_evaluation": manifest}
+
+    monkeypatch.setattr("src.registry.compare._load_version", load_version)
+    return compare_model_versions(object(), "model", candidate, champion)
+
+
 def test_temporal_promotion_rows_are_after_selection_rows():
     selection, promotion = split_selection_and_promotion(_rows(), "temporal", seed=42)
     assert selection["TransactionDT"].max() < promotion["TransactionDT"].min()
     assert set(selection["TransactionID"]).isdisjoint(promotion["TransactionID"])
 
 
-def test_same_rows_produce_same_fingerprint_and_identity(tmp_path):
+def test_same_rows_with_different_artifact_bytes_have_same_semantic_identity(tmp_path):
     first = _write(_rows(), tmp_path / "first")
     second = _write(_rows(), tmp_path / "second")
+    second_path = tmp_path / "second" / DATA_FILE
+    _rows().to_parquet(second_path, index=False, compression=None)
+    second["artifact_sha256"] = _file_sha256(second_path)
+
+    assert first["artifact_sha256"] != second["artifact_sha256"]
     assert first["fingerprint"] == second["fingerprint"]
-    assert evidence_identity(first) == evidence_identity(second)
+    assert semantic_evidence_identity(first) == semantic_evidence_identity(second)
+    pd.testing.assert_frame_equal(
+        load_and_verify_evaluation(tmp_path / "first" / DATA_FILE, first),
+        load_and_verify_evaluation(second_path, second),
+    )
 
 
-def test_different_rows_produce_different_fingerprints(tmp_path):
+def test_changed_row_value_changes_semantic_fingerprint_and_blocks_comparison(
+    tmp_path, monkeypatch
+):
     first = _write(_rows(), tmp_path / "first")
     changed = _rows()
     changed.loc[0, "TransactionAmt"] = 999.0
     second = _write(changed, tmp_path / "second")
     assert first["fingerprint"] != second["fingerprint"]
+    report = _compare_manifests(monkeypatch, second, first)
+    assert report["decision"] == "blocked"
+    assert "evidence does not match" in report["reason"]
+
+
+def test_changed_row_order_and_identity_block_comparison(tmp_path, monkeypatch):
+    first = _write(_rows(), tmp_path / "first")
+    reordered = _rows().iloc[::-1].reset_index(drop=True)
+    second = _write(reordered, tmp_path / "second")
+
+    assert first["row_identity_fingerprint"] != second["row_identity_fingerprint"]
+    assert first["fingerprint"] != second["fingerprint"]
+    report = _compare_manifests(monkeypatch, second, first)
+    assert report["decision"] == "blocked"
+    assert "evidence does not match" in report["reason"]
 
 
 def test_missing_fingerprint_fails_closed(tmp_path):
     manifest = _write(_rows(), tmp_path)
     manifest.pop("fingerprint")
     with pytest.raises(PromotionEvaluationError, match="missing fields"):
-        evidence_identity(manifest)
+        semantic_evidence_identity(manifest)
 
 
 def test_missing_source_fingerprint_fails_closed(tmp_path):
     manifest = _write(_rows(), tmp_path)
     manifest["source_data_fingerprint"] = {"source": None}
     with pytest.raises(PromotionEvaluationError, match="source data fingerprint"):
-        evidence_identity(manifest)
+        semantic_evidence_identity(manifest)
 
 
 def test_tampered_artifact_fails_fingerprint_verification(tmp_path):

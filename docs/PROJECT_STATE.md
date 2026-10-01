@@ -1,17 +1,15 @@
 # Project state
 
-- **Current phase:** PHASE 5 — Monitoring + Security, Slice 1 implemented and
-  Python/Compose-config verified; container builds and NGINX runtime validation
-  were not run because the local Docker daemon was unavailable, and full
-  production-like E2E remains blocked by the obsolete Community MinIO
-  distribution
+- **Current phase:** PHASE 5 — Monitoring + Security, Slices 1–2 implemented;
+  Slice 2 hardens deterministic reference-authoritative drift reporting while
+  delayed-label monitoring remains deferred
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
 - **Merged Phase 1 PR commit:** `e51594d2f9f93832afcc046d33098e2df69bb680`
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next authorized work:** PHASE 5 Slice 2 only when explicitly requested;
-  PHASE 6 has not started
+- **Next authorized work:** no additional slice is authorized; PHASE 6 has not
+  started
 
 ## Canonical architecture
 
@@ -32,7 +30,14 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
 ## Known limitations
 
 - The ordinal/drop and uncalibrated baseline remains the default because no real IEEE-CIS benchmark is available in the repository. Frequency encoding and sigmoid/isotonic calibration are implemented experiment variants but are not selected based on synthetic results.
-- Drift monitoring uses lightweight mean, missing-rate, and category-share shifts; there is no delayed-ground-truth performance pipeline or alerting integration.
+- Drift monitoring is deterministic and reference-authoritative, with fixed
+  reference-derived numeric bins, bounded categorical buckets, explicit
+  prediction-output handling, provenance/fingerprints, and machine-readable
+  checks. It remains an offline supplied-file workflow: there is no prediction
+  log persistence, delayed-ground-truth performance pipeline, or alerting
+  integration. Feature roles and provenance are operator-supplied; optional
+  deployment-state validation checks identity but does not independently prove
+  feature-schema completeness against the deployed artifact.
 - Production-like Postgres was independently verified healthy and the aligned
   MLflow/API images build. Complete stack verification is blocked because the
   archived Community MinIO project has moved to source-only distribution and
@@ -74,5 +79,16 @@ once, using a single allowlisted reason, `multiple`, or `other`. Docker image
 builds, NGINX runtime validation, Trivy, and SBOM generation did not run because
 the Docker daemon was unavailable. Production-like E2E was not rerun and
 remains blocked by the obsolete Community MinIO distribution.
+
+Phase 5 Slice 2 verification on 2026-10-01 passed 37 focused drift tests, 168
+unit tests, 21 integration tests, and the full 189-test suite at 87.49%
+coverage. Ruff, Black check, mypy, `pip check`, the exact reviewed `pip-audit`
+baseline, and `git diff --check` passed. Manual JSON/Markdown inspection
+confirmed strict standard JSON, stable semantic identity/provenance, bounded
+category tokens, explicit prediction status, rollback-safe report-pair
+publication, and BREACH exit behavior.
+Gitleaks, Trivy, and Syft remain unavailable and were not represented as
+passing. No container surface changed; production-like Docker E2E was not
+rerun and remains blocked/unverified as documented above.
 
 MLflow 2.22.5 is explicitly paired with SQLAlchemy 2.0.51 because its database-store code imports a compatibility pool class removed in SQLAlchemy 2.1. A clean Python 3.11 install resolved Alembic 1.20.0 without an additional constraint, passed `pip check`, and passed all 20 registry/training tests that cover the prior CI failure before the full Phase 1 verification above was rerun.

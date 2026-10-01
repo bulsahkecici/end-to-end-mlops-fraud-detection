@@ -71,7 +71,7 @@ production-e2e:
 	python scripts/validate_production_e2e.py
 
 drift-report:
-	python -m src.monitoring.drift --synthetic
+	python -m src.monitoring.drift $(DRIFT_ARGS)
 
 # Aliases kept for backwards compatibility with the original Makefile.
 up: docker-up

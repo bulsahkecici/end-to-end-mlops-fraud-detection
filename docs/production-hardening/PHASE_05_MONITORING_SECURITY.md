@@ -81,3 +81,51 @@ Postgres remains unexposed. Docker image builds and NGINX runtime validation
 could not run because the Docker daemon was unavailable. Gitleaks, Trivy, and
 Syft were not installed and did not run. Production-like E2E remains blocked
 by the obsolete Community MinIO distribution documented in project state.
+
+## Slice 2 — Drift monitoring hardening
+
+Implemented deterministic, reference-authoritative offline drift reporting
+without starting delayed-label monitoring:
+
+- An operator-supplied contract is expected to copy the fitted model artifact's
+  persisted numeric and categorical feature roles plus immutable model/run/
+  optional deployment identity and stored-threshold provenance. Current data
+  never defines schema. Optional deployment-state validation confirms identity,
+  but the monitor does not load model metadata or independently prove that the
+  supplied feature list is complete.
+- Stable input, schema/config, and semantic-report SHA-256 fingerprints use
+  canonical content ordering; volatile generation time is kept outside the
+  semantic report identity.
+- Numeric evidence uses reference-derived quantile bins, fixed unchanged for
+  current data, with bounded total-variation checks and explicit handling of
+  missing, invalid/non-finite, constant, all-null, and absent columns.
+- Categorical evidence is capped at reference top-K plus `OTHER`, `MISSING`,
+  and `UNKNOWN`; category values are represented by SHA-256 tokens rather than
+  emitted as uncontrolled raw high-cardinality lists. The unsalted tokens are
+  pseudonymous bounded identifiers, not secrecy or anonymization.
+- Prediction probabilities and decisions are monitored only through explicitly
+  configured prediction columns. Label prevalence is never called prediction
+  drift. An unusable configured reference baseline fails closed; current
+  prediction data with no valid comparable values is `NOT_EVALUATED` with an
+  explicit availability breach rather than a healthy pass.
+- Machine checks use fixed status/severity vocabularies. PASS/WARN exits zero,
+  BREACH exits one, and invalid contracts/inputs/outputs exit two.
+- The CLI requires all inputs, sources, windows, contract, and output path. It
+  has no synthetic fallback and refuses implicit overwrite. JSON/Markdown pairs
+  use a best-effort local-filesystem transaction: both are prepared first, and
+  a failed second publication removes the new first output or restores its
+  prior version. This does not claim distributed transaction guarantees.
+
+Still deferred: delayed-label performance monitoring, prediction/label
+persistence, streaming, alert delivery, retraining/promotion/rollback triggers,
+artifact signing, broad artifact-tree integrity, MLflow major migration, MinIO
+replacement, and Phase 6.
+
+Verification on 2026-10-01 passed 37 focused drift tests, 168 unit tests, 21
+integration tests, the full 189-test suite, and the 75% coverage gate at 87.49%.
+Ruff, Black check, mypy, `pip check`, the exact reviewed `pip-audit` baseline,
+and `git diff --check` passed. A generated JSON report passed strict parsing
+with no NaN/Infinity, and its Markdown companion was manually inspected for
+matching provenance, feature, prediction, and status content. Gitleaks, Trivy,
+and Syft remained unavailable. Production-like Docker E2E was not rerun and
+remains blocked/unverified by the obsolete Community MinIO distribution.

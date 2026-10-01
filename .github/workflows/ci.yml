@@ -31,11 +31,16 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      - name: Python dependency integrity and reviewed vulnerability baseline
+        run: |
+          python -m pip check
+          python scripts/audit_python_dependencies.py
+
       - name: Ruff
-        run: ruff check src tests
+        run: ruff check src tests scripts
 
       - name: Black --check
-        run: black --check src tests
+        run: black --check src tests scripts
 
       - name: Mypy
         run: mypy src

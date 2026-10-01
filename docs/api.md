@@ -154,6 +154,12 @@ Disabled by default for local development. Set `API_KEY_ENABLED=true` and
 `API_KEY=<secret>` to require an `X-API-Key` header on every endpoint
 except `/health`, `/ready`, and `/metrics`.
 
+API keys are compared with a constant-time comparison. Browser CORS preflight
+requests (`OPTIONS` with `Origin` and `Access-Control-Request-Method`) pass to
+the CORS middleware without API-key authentication; CORS validates the origin
+and requested method and does not execute the protected endpoint. Ordinary
+non-preflight `OPTIONS` requests remain subject to API-key authentication.
+
 ```bash
 curl -s -X POST http://localhost:8000/predict \
   -H "X-API-Key: <secret>" \

@@ -1,14 +1,17 @@
 # Project state
 
-- **Current phase:** PHASE 4 — Deployment Lifecycle (implementation complete;
-  local/lifecycle verification passed; full production-like E2E blocked by the
-  obsolete Community MinIO distribution)
+- **Current phase:** PHASE 5 — Monitoring + Security, Slice 1 implemented and
+  Python/Compose-config verified; container builds and NGINX runtime validation
+  were not run because the local Docker daemon was unavailable, and full
+  production-like E2E remains blocked by the obsolete Community MinIO
+  distribution
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
 - **Merged Phase 1 PR commit:** `e51594d2f9f93832afcc046d33098e2df69bb680`
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next phase:** PHASE 5 (not started or authorized)
+- **Next authorized work:** PHASE 5 Slice 2 only when explicitly requested;
+  PHASE 6 has not started
 
 ## Canonical architecture
 
@@ -43,9 +46,33 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
   implementation defect; the blocker is not expected to resolve automatically.
 - Container base/service references remain tag-based rather than digest-pinned.
 - Synthetic runs validate plumbing only; no canonical real IEEE-CIS release metrics are recorded.
+- MLflow 2.22.5 remains pinned. The 2026-10-01 `pip-audit` result contains 54
+  raw findings (28 unique advisory IDs) across runtime-reachable MLflow and
+  PyArrow; all listed MLflow fixes require 3.x, several much later 3.x releases
+  or no available fix. Slice 1 contains MLflow to the internal production-like
+  Docker network instead of attempting an unverified major migration. The
+  PyArrow finding's vulnerable C++ pre-buffering API is not exposed through the
+  Python bindings according to the advisory.
+- Gitleaks, Trivy, and Syft were unavailable and did not run. Redacted tracked
+  file and Git-history high-confidence-pattern checks found no match, but they
+  are not substitutes for those dedicated secret, image, and SBOM tools.
 
 ## CI and local verification status
 
-CI defines Ruff, Black, mypy, unit tests, integration tests, coverage with a 75% floor, and an isolated local-lite lifecycle job. The retained production-like validator is an explicit `workflow_dispatch` opt-in while the Community MinIO dependency is structurally blocked; ordinary required CI emits a notice and does not represent that validator as passing. Phase 4 verification on 2026-09-30 passed Ruff, Black check, mypy, 132 unit tests, 20 integration tests, and the full 152-test suite at 86.55% coverage. The focused Phase 2 promotion regression set passed 32 tests, including promotion lifecycle; the calibrated Phase 3 artifact lifecycle remains covered by that passing integration test. The isolated local-lite synthetic lifecycle/API E2E passed all 9 steps: tracking-store creation, training/registration, candidate assignment, promotion, explicit deployment, API startup, immutable readiness identity, single prediction, and batch prediction. Both Compose profiles render. The production validator built the aligned MLflow/API images, but stopped non-zero before service startup when Docker could not pull `minio/minio:latest`; its isolated project and volumes were torn down. Postgres 16 was then independently verified healthy and accepting connections, and its isolated test volume was removed. The MLflow image contains MLflow 2.22.5, SQLAlchemy 2.0.51, psycopg2-binary 2.9.10, and boto3 1.35.90. Complete production-like lifecycle verification remains externally blocked as documented above.
+CI defines Ruff, Black, mypy, unit tests, integration tests, coverage with a 75% floor, a reviewed Python dependency audit, and an isolated local-lite lifecycle job. The retained production-like validator is an explicit `workflow_dispatch` opt-in while the Community MinIO dependency is structurally blocked; ordinary required CI emits a notice and does not represent that validator as passing. Phase 4 verification on 2026-09-30 passed Ruff, Black check, mypy, 132 unit tests, 20 integration tests, and the full 152-test suite at 86.55% coverage. The focused Phase 2 promotion regression set passed 32 tests, including promotion lifecycle; the calibrated Phase 3 artifact lifecycle remains covered by that passing integration test. The isolated local-lite synthetic lifecycle/API E2E passed all 9 steps: tracking-store creation, training/registration, candidate assignment, promotion, explicit deployment, API startup, immutable readiness identity, single prediction, and batch prediction. Both Compose profiles render. The production validator built the aligned MLflow/API images, but stopped non-zero before service startup when Docker could not pull `minio/minio:latest`; its isolated project and volumes were torn down. Postgres 16 was then independently verified healthy and accepting connections, and its isolated test volume was removed. The MLflow image contains MLflow 2.22.5, SQLAlchemy 2.0.51, psycopg2-binary 2.9.10, and boto3 1.35.90. Complete production-like lifecycle verification remains externally blocked as documented above.
+
+Phase 5 Slice 1 verification on 2026-10-01 passed the focused middleware and
+logging regression set, 137 unit tests, 21 integration tests, and the full
+158-test suite at 86.72% coverage. Ruff, Black check, mypy, `pip check`, the
+reviewed `pip-audit` baseline, and `git diff --check` passed. Both Compose
+profiles render; the base production-like rendering publishes only NGINX while
+API, MLflow, MinIO, Postgres, and MinIO initialization expose no host ports.
+The production validator now adds a generated temporary override that publishes
+only API, MLflow, and MinIO on loopback for its host-side checks, with Postgres
+still private. Semantic-validation metrics count each rejected request exactly
+once, using a single allowlisted reason, `multiple`, or `other`. Docker image
+builds, NGINX runtime validation, Trivy, and SBOM generation did not run because
+the Docker daemon was unavailable. Production-like E2E was not rerun and
+remains blocked by the obsolete Community MinIO distribution.
 
 MLflow 2.22.5 is explicitly paired with SQLAlchemy 2.0.51 because its database-store code imports a compatibility pool class removed in SQLAlchemy 2.1. A clean Python 3.11 install resolved Alembic 1.20.0 without an additional constraint, passed `pip check`, and passed all 20 registry/training tests that cover the prior CI failure before the full Phase 1 verification above was rerun.

@@ -2,8 +2,9 @@
 
 ## Profiles
 
-`docker-compose.yml` defines two independent profiles — pick one, they are
-not meant to run together (both bind port 5000/8000):
+`docker-compose.yml` defines two independent profiles. Pick one: local-lite
+publishes loopback development ports, while production-like publishes only
+the NGINX front door. They are not meant to run together.
 
 ### `local-lite` (default, no credentials)
 
@@ -16,8 +17,9 @@ docker compose --profile local-lite up -d mlflow
 - `api`: builds from `Dockerfile.api`, depends on `mlflow` being healthy, and
   requires a valid explicit deployment state before it becomes healthy.
 - `nginx`: rate-limited reverse proxy in front of `api`, published on
-  `:8080` (see "Rate limiting" below). `api` itself stays published on
-  `:8000` too, for direct/debug access.
+  loopback `:8080` (see "Rate limiting" below). `api` and MLflow also stay
+  available on loopback `:8000` and `:5000` for local debugging. Local-lite
+  is a developer profile, not an internet-facing deployment.
 
 ### `production-like` (Postgres + MinIO)
 
@@ -33,6 +35,14 @@ docker compose --profile production-like up -d postgres minio minio-init mlflow-
 - `api-prod`: same image as `api`, points `MLFLOW_TRACKING_URI` at
   `mlflow-prod`.
 - `nginx-prod`: same rate-limiting proxy as `nginx`, in front of `api-prod`.
+
+Only `nginx-prod` publishes a production-like host port. `api-prod`,
+`mlflow-prod`, MinIO, and the MinIO console have no host port mapping and are
+reachable only by services on the internal `mlops` Docker network. This
+prevents a normal host-accessible API bypass around NGINX and does not present
+the unauthenticated MLflow server or object store as internet-safe. Docker
+network membership is a containment boundary, not tenant-grade MLflow
+authentication; do not attach untrusted containers to this network.
 
 The MLflow server image is based on `mlflow==2.22.5`, matching the Python
 runtime, and adds the pinned Postgres/S3 drivers used by this profile. Compose
@@ -132,8 +142,12 @@ MLflow, two deployments, no-hot-swap proof, NGINX prediction, and rollback—is:
 make production-e2e
 ```
 
-It uses disposable credentials, free host ports, an isolated Compose project,
-temporary deployment state, and always runs `down -v` for that project. It is
+It uses disposable credentials, an isolated Compose project, temporary
+deployment state, and always runs `down -v` for that project. The base
+production-like profile remains NGINX-only; the validator generates a temporary
+Compose override that binds API, MLflow, and MinIO to random loopback-only ports
+for host-side lifecycle probes. The override exists only for the isolated
+validator run and never exposes those services on `0.0.0.0`. The validator is
 retained for an explicit future object-store decision, but currently exits
 non-zero at the obsolete Community MinIO dependency and must not be interpreted
 as a production-like PASS.
@@ -154,6 +168,9 @@ Phase 4.
   model work happens (`src/api/schemas.py`, `src/api/middleware.py`).
 - **API key**: off by default (`API_KEY_ENABLED=false`) for frictionless
   local development; set to `true` in any shared/production environment.
+  Comparisons are constant-time. `/health`, `/ready`, and `/metrics` are the
+  only unauthenticated application routes. Valid browser CORS preflight is
+  handled by CORS before endpoint authentication and cannot invoke inference.
 - **CORS**: `CORS_ALLOW_ORIGINS` defaults to `*`; set to your actual
   frontend origin(s) in production.
 - **Timeouts**: this project does not set an explicit per-request timeout
@@ -178,11 +195,30 @@ Phase 4.
   defaults returns `200` for the first ~30 (burst + one tick of steady
   rate) then `429 Too Many Requests` for the rest; the same burst against
   `/health` stays `200` throughout.
-- **Dependency vulnerabilities**: see the "ci: add drift monitoring, patch
-  known dependency vulnerabilities" commit message for the current
-  `pip-audit` status. `mlflow` and `pyarrow` both have known CVEs only
-  fixed in major-version bumps (mlflow 3.x, pyarrow 23.x) not attempted in
-  this pass — see "Known limitations" in the final report.
+- **Dependency audit**: `make security-audit` runs `pip check` and the pinned
+  `pip-audit==2.10.1` against `requirements-dev.txt` (which includes runtime
+  requirements). The checked-in reviewed baseline fails CI for new findings,
+  removed/stale findings, newly available same-major fixes, audit collection
+  failures, or malformed results; it does not turn already-reviewed findings
+  into a permanently red job.
+- **Accepted dependency risk (reviewed 2026-10-01)**: `pip-audit` reports 54
+  raw findings (28 unique advisory IDs) across `mlflow==2.22.5` and
+  `pyarrow==17.0.0`. All listed MLflow fixes require MLflow 3.x, with several
+  requiring substantially later 3.x releases or having no fixed version.
+  Phase 5 Slice 1 therefore does not make an unproven registry/artifact/model
+  compatibility migration. MLflow is runtime-reachable and must remain on a
+  trusted internal network; features mentioned by several advisories (basic
+  auth, jobs, AI Gateway, webhooks, model serving) are not enabled here, but
+  artifact upload/deserialization findings remain relevant if that boundary
+  is compromised. The PyArrow advisory concerns a C++ pre-buffering API that
+  its advisory says is not exposed through Python bindings, so the repository's
+  Python Parquet usage is not believed reachable. The selected PyPI audit
+  service did not return severity scores, so advisory IDs and reachability are
+  recorded rather than invented severities.
+- **Tool coverage**: Gitleaks, Trivy, and Syft are not installed in the current
+  environment and are not silently substituted. Their secret-scan,
+  image-vulnerability, and SBOM coverage remains a documented gap until pinned
+  versions and reviewed baselines can be added without hiding accepted risk.
 
 ## Windows
 

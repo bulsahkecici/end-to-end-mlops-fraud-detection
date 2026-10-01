@@ -3,8 +3,9 @@
 ## Structured logging
 
 `src/logging_config.py` configures a JSON log formatter used by everything
-under `src/api/`. Every request produces one `request_handled` (or
-`unauthorized` / `unhandled_exception`) log line with:
+under `src/api/`. Every request produces a `request_handled` line; rejected or
+failed requests also produce a bounded event such as `unauthorized` or
+`unhandled_exception`:
 
 ```json
 {
@@ -19,9 +20,14 @@ under `src/api/`. Every request produces one `request_handled` (or
 }
 ```
 
-`model_name`, `model_version`, and `batch_size` are attached where
-relevant (model load, prediction failures). **Raw transaction payloads and
-prediction values are never logged** — only request metadata. Every
+The endpoint is a configured route template, never the raw URL path; unknown
+paths use the fixed value `unmatched`. `model_name`, `model_version`,
+`deployment_id`, deployment `action`, `batch_size`, and exception class
+`error_type` are attached where relevant. Raw exception messages and
+tracebacks are not logged at the API boundary because third-party messages can
+contain artifact paths or connection details. **Raw transaction payloads,
+prediction values, API keys, credentials, and artifact contents are never
+logged**. Every
 response also carries an `X-Request-ID` header matching the log line, so a
 client-reported issue can be traced to its exact log entry.
 
@@ -29,12 +35,17 @@ client-reported issue can be traced to its exact log entry.
 
 | Metric | Type | Labels | Notes |
 |---|---|---|---|
-| `http_requests_total` | Counter | `endpoint`, `method`, `status_code` | |
-| `http_request_duration_seconds` | Histogram | `endpoint` | |
+| `http_requests_total` | Counter | `endpoint`, `method`, `status_code` | endpoint is a known route template or `unmatched` |
+| `http_request_duration_seconds` | Histogram | `endpoint` | endpoint is a known route template or `unmatched` |
 | `predict_batch_size` | Histogram | — | records per `/predict` call |
 | `predictions_total` | Counter | — | individual predictions returned |
 | `fraud_predictions_total` | Counter | — | predictions with `fraud_prediction == 1` |
 | `prediction_exceptions_total` | Counter | — | exceptions during `/predict` |
+| `authentication_failures_total` | Counter | — | API-key rejections |
+| `request_body_size_rejections_total` | Counter | — | in-process body-limit rejections |
+| `semantic_validation_failures_total` | Counter | `code` | rejected requests; one issue uses its allowlisted code, while multiple issues use `multiple` and unknown single codes use `other` |
+| `readiness_failures_total` | Counter | — | `/ready` responses reporting unavailable |
+| `model_load_failures_total` | Counter | — | failed startup model-load attempts |
 | `model_loaded` | Gauge | — | 1 if ready, 0 otherwise |
 | `model_info` | Gauge | `model_name`, `model_version` | always 1; a label carrier, not a real gauge |
 
@@ -43,6 +54,11 @@ a single low-cardinality gauge with at most one active version at a time —
 never on `http_requests_total`/`http_request_duration_seconds`, where a
 label per redeployed model version would grow the series count without
 bound over the service's lifetime.
+
+No metric label contains a raw URL, request/record/run/deployment ID, error
+text, API key, or request value. HTTP methods are limited to standard methods
+plus `OTHER`; status codes are finite; semantic validation codes are explicitly
+allowlisted.
 
 Example scrape config:
 

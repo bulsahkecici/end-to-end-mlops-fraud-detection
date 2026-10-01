@@ -19,6 +19,8 @@ _EXTRA_FIELDS = (
     "model_version",
     "batch_size",
     "error_type",
+    "deployment_id",
+    "action",
 )
 
 

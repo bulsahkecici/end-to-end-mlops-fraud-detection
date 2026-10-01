@@ -9,6 +9,7 @@ the security behaviour is easy to audit in one place.
 from __future__ import annotations
 
 import logging
+import secrets
 import time
 import uuid
 from collections import deque
@@ -16,14 +17,22 @@ from collections import deque
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from starlette.routing import Match
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
-from src.api.metrics import REQUEST_COUNT, REQUEST_LATENCY_SECONDS
+from src.api.metrics import (
+    AUTHENTICATION_FAILURES_TOTAL,
+    REQUEST_BODY_REJECTIONS_TOTAL,
+    REQUEST_COUNT,
+    REQUEST_LATENCY_SECONDS,
+)
 from src.config import settings
 
 logger = logging.getLogger("src.api")
 
 _UNAUTHENTICATED_PATHS = {"/health", "/ready", "/metrics"}
+_UNMATCHED_ROUTE_LABEL = "unmatched"
+_KNOWN_HTTP_METHODS = frozenset({"DELETE", "GET", "HEAD", "OPTIONS", "PATCH", "POST", "PUT"})
 
 
 class RequestBodyLimitMiddleware:
@@ -87,6 +96,7 @@ def _declared_body_exceeds_limit(scope: Scope, limit: int) -> bool:
 
 
 async def _request_too_large_response(scope: Scope, receive: Receive, send: Send) -> None:
+    REQUEST_BODY_REJECTIONS_TOTAL.inc()
     response = JSONResponse(status_code=413, content={"detail": "Request body too large"})
     await response(scope, receive, send)
 
@@ -111,10 +121,19 @@ def register_middleware(app: FastAPI) -> None:
     async def request_context(request: Request, call_next):
         request_id = str(uuid.uuid4())
         start = time.perf_counter()
-        endpoint = request.url.path
+        endpoint = normalized_route_label(request)
+        method = normalized_method_label(request.method)
 
-        needs_auth = settings.api_key_enabled and endpoint not in _UNAUTHENTICATED_PATHS
-        if needs_auth and request.headers.get("X-API-Key") != settings.api_key:
+        needs_auth = (
+            settings.api_key_enabled
+            and endpoint not in _UNAUTHENTICATED_PATHS
+            and not _is_cors_preflight(request)
+        )
+        supplied_key = request.headers.get("X-API-Key", "")
+        expected_key = settings.api_key or ""
+        key_is_valid = bool(expected_key) and secrets.compare_digest(supplied_key, expected_key)
+        if needs_auth and not key_is_valid:
+            AUTHENTICATION_FAILURES_TOTAL.inc()
             response = JSONResponse(
                 status_code=401, content={"detail": "Invalid or missing API key"}
             )
@@ -122,10 +141,14 @@ def register_middleware(app: FastAPI) -> None:
         else:
             try:
                 response = await call_next(request)
-            except Exception:  # noqa: BLE001 - never leak a raw traceback to the client
-                logger.exception(
+            except Exception as exc:  # noqa: BLE001 - keep public failure generic
+                logger.error(
                     "unhandled_exception",
-                    extra={"request_id": request_id, "endpoint": endpoint},
+                    extra={
+                        "request_id": request_id,
+                        "endpoint": endpoint,
+                        "error_type": type(exc).__name__,
+                    },
                 )
                 response = JSONResponse(
                     status_code=500, content={"detail": "Internal server error"}
@@ -134,7 +157,7 @@ def register_middleware(app: FastAPI) -> None:
         latency_seconds = time.perf_counter() - start
         response.headers["X-Request-ID"] = request_id
         REQUEST_COUNT.labels(
-            endpoint=endpoint, method=request.method, status_code=str(response.status_code)
+            endpoint=endpoint, method=method, status_code=str(response.status_code)
         ).inc()
         REQUEST_LATENCY_SECONDS.labels(endpoint=endpoint).observe(latency_seconds)
         logger.info(
@@ -147,3 +170,27 @@ def register_middleware(app: FastAPI) -> None:
             },
         )
         return response
+
+
+def normalized_route_label(request: Request) -> str:
+    """Return a configured route template or one fixed label for unknown paths."""
+    for route in request.app.routes:
+        match, _ = route.matches(request.scope)
+        if match is not Match.NONE:
+            path = getattr(route, "path", None)
+            if isinstance(path, str):
+                return path
+    return _UNMATCHED_ROUTE_LABEL
+
+
+def normalized_method_label(method: str) -> str:
+    normalized = method.upper()
+    return normalized if normalized in _KNOWN_HTTP_METHODS else "OTHER"
+
+
+def _is_cors_preflight(request: Request) -> bool:
+    return (
+        request.method == "OPTIONS"
+        and "origin" in request.headers
+        and "access-control-request-method" in request.headers
+    )

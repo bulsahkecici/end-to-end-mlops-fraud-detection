@@ -1,4 +1,4 @@
-.PHONY: install lint format typecheck test coverage \
+.PHONY: install lint format typecheck test coverage security-audit \
         train-smoke train-ieee promote deploy deployment-status rollback serve \
         docker-build docker-up docker-down smoke-test production-e2e drift-report \
         up down
@@ -28,6 +28,10 @@ test:
 
 coverage:
 	pytest --cov=src --cov-report=term-missing
+
+security-audit:
+	python -m pip check
+	python scripts/audit_python_dependencies.py
 
 train-smoke:
 	python -m src.modeling.train --data-source synthetic --n-synthetic 4000

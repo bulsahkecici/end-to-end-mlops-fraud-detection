@@ -163,3 +163,12 @@ this removes the active vendor findings without losing OS coverage.
 OS identity reconciliation accounts for Trivy's separate Debian Epoch/Release
 fields; a raw Version-only comparison would incorrectly reject valid evidence.
 Explicit regressions cover full Debian and APK versions.
+
+Both final runtimes now pin **all 38 APK package versions** from the actual
+compatible Wolfi artifact, including its glibc-2.44 2.44-r7 provider. The earlier
+public-index glibc 2.43 listing is not the installed provider selected by the
+pinned base. The same checked-in package lock is applied to builder/runtime;
+unavailable exact versions fail the build instead of silently resolving newer
+packages. Together with the base digest and complete Python constraints this
+makes dependency resolution reproducible. Source-repository/package availability
+remains an external build dependency; refreshes require revalidation.

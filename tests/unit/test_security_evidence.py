@@ -417,15 +417,18 @@ def test_execution_errors_never_become_accepted(tmp_path, monkeypatch, failure):
 
 def test_runtime_build_tool_policy():
     root = Path(__file__).resolve().parents[2]
+    package_pins = (root / "docker/wolfi.packages").read_text()
     for filename in ("Dockerfile.api", "Dockerfile.mlflow"):
         contents = (root / filename).read_text()
         builder, runtime = contents.rsplit("FROM ", 1)
         assert "wolfi-base:latest@sha256:" in runtime
-        assert "python-3.11=3.11.17-r0" in runtime
-        assert "libgomp=16.2.0-r1" in runtime
-        assert "libstdc++=16.2.0-r1" in runtime
-        assert "ca-certificates-bundle=20260909-r2" in runtime
-        assert "tzdata=2026e-r0" in runtime
+        assert "COPY docker/wolfi.packages /packages" in runtime
+        assert "RUN xargs apk add --no-cache < /packages" in runtime
+        assert "python-3.11=3.11.17-r0" in package_pins
+        assert "libgomp=16.2.0-r1" in package_pins
+        assert "libstdc++=16.2.0-r1" in package_pins
+        assert "ca-certificates-bundle=20260909-r2" in package_pins
+        assert "tzdata=2026e-r0" in package_pins
         assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in builder
         assert builder.index("pip uninstall -y setuptools wheel") > builder.index("pip install")
         assert "--only-binary=:all:" in builder

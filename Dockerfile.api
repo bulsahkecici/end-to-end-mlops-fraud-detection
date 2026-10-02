@@ -1,6 +1,7 @@
 # syntax=docker/dockerfile:1
 FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS builder
-RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
+COPY docker/wolfi.packages /packages
+RUN xargs apk add --no-cache < /packages
 RUN python3.11 -m venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /build
@@ -10,7 +11,8 @@ RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt -c /const
 RUN python -m pip uninstall -y setuptools wheel && python -m pip check
 
 FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS runtime
-RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
+COPY docker/wolfi.packages /packages
+RUN xargs apk add --no-cache < /packages
 RUN addgroup -g 10001 app && adduser -D -H -u 10001 -G app -s /sbin/nologin app
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH LANG=C.UTF-8

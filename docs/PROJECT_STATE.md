@@ -456,3 +456,11 @@ pip itself by its supported operation; no OS-owned package files are deleted.
 The no-installer runtime must pass all remote checks again. OS coverage matches
 full Debian epoch/release identities and APK versions. All 71 focused security
 tests pass. No new Python or OS finding is accepted. Phase 6 remains blocked.
+
+Both-image OS inventory coverage was independently validated against the original
+Debian artifact (88 API / 87 MLflow exact package identities) and first Wolfi
+artifact (38 / 38), all PASS with epoch/release-aware reconciliation. All 38
+actual APK package versions are now locked, including the glibc-2.44 2.44-r7
+provider selected by the pinned base; builder and final runtime use the same lock.
+This prevents transitive OS provider drift. The first API/native model stack is
+otherwise unchanged, with both-image Python constraints pinned as documented.

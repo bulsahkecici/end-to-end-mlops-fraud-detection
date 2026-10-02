@@ -1,15 +1,14 @@
 # Project state
 
-- **Current phase:** PHASE 5 — Monitoring + Security, Slices 1–2 implemented;
-  Slice 2 hardens deterministic reference-authoritative drift reporting while
-  delayed-label monitoring remains deferred
+- **Current phase:** PHASE 5 — Monitoring + Security, Slices 1–3 implemented;
+  phase-wide closure retains deterministic drift and repeatable security
+  evidence while delayed-label monitoring remains explicitly deferred
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
 - **Merged Phase 1 PR commit:** `e51594d2f9f93832afcc046d33098e2df69bb680`
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next authorized work:** no additional slice is authorized; PHASE 6 has not
-  started
+- **Next authorized work:** none; PHASE 6 has not started
 
 ## Canonical architecture
 
@@ -58,9 +57,12 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
   Docker network instead of attempting an unverified major migration. The
   PyArrow finding's vulnerable C++ pre-buffering API is not exposed through the
   Python bindings according to the advisory.
-- Gitleaks, Trivy, and Syft were unavailable and did not run. Redacted tracked
-  file and Git-history high-confidence-pattern checks found no match, but they
-  are not substitutes for those dedicated secret, image, and SBOM tools.
+- A manual fail-closed security-evidence workflow now installs checksum-pinned
+  Gitleaks 8.30.1, Trivy 0.69.3, and Syft 1.52.0. It scans full reachable Git
+  history with redaction, builds/scans exact local API and MLflow image IDs,
+  emits SPDX JSON SBOMs, and uploads evidence tied to the source commit. This
+  workflow is not a required check and has not been represented as passing
+  merely because its definition exists.
 
 ## CI and local verification status
 
@@ -91,4 +93,71 @@ Gitleaks, Trivy, and Syft remain unavailable and were not represented as
 passing. No container surface changed; production-like Docker E2E was not
 rerun and remains blocked/unverified as documented above.
 
+Phase 5 Slice 3 adds the manual security-evidence workflow, an auditable local
+runner, immutable action pins/minimum token permissions, and operator response
+guidance. No Dockerfile/runtime containment setting was added without daemon
+compatibility evidence. On 2026-10-02, the 69-test focused security/monitoring
+set, 174 unit tests, 21 integration tests, and the full 195-test suite passed.
+Ruff, Black check, mypy, `pip check`, the exact 28-advisory/2-package
+`pip-audit` baseline, both Compose profile renders, workflow YAML parsing, and
+`git diff --check` passed. A checksum-verified Gitleaks 8.30.1 binary scanned
+the full reachable Git history with 100% value redaction and found zero
+secrets. The first dependency-audit attempt could not obtain valid audit JSON
+inside the network sandbox and failed closed; the authorized network retry
+completed and matched the baseline.
+
+The local Docker client is installed, but `docker info` confirmed that the
+Colima daemon is not running even outside the filesystem sandbox. API/MLflow
+image builds, Trivy scans, image SPDX JSON SBOM generation, NGINX runtime
+validation, and production-like E2E were therefore **NOT RUN** locally. Trivy
+and Syft were not installed or represented as passing. The manual CI security
+workflow remains pending authoritative execution after commit; workflow
+definition alone is not a security PASS. Production-like E2E also remains
+blocked/unverified by the obsolete Community MinIO distribution.
+
+The final Phase 5 review found hash-seed-dependent floating-point summation in
+total-variation drift. The blocker fix sorts the bucket union and uses
+`math.fsum`. Real CLI subprocess regressions under `PYTHONHASHSEED=1` and `3`
+verify identical complete semantic reports, input fingerprints, semantic SHA,
+drift values, check/overall statuses, and exit codes. The reviewer-equivalent
+categorical case now returns `0.6435643564356436`, WARN, and exit 0 under both
+seeds at breach threshold `0.6435643564356437`; tests at the exact drift value
+and its adjacent floating-point thresholds preserve the existing `>=` breach
+rule. The existing cross-seed input-fingerprint regression remains intact.
+Verification on 2026-10-02 passed 41 drift tests, all four new CLI cases with
+each outer hash seed (1 and 3), 178 unit tests, 21 integration tests, and the
+full 199-test suite with 87.50% coverage (75% minimum). The new regression
+also rejected the original unordered implementation in an isolated subprocess.
+Ruff, Black check, mypy, `pip check`, the exact 28-advisory/2-package dependency
+baseline, and `git diff --check` passed. Black initially flagged the new test
+formatting; formatting only that file made its check pass. No container or CI
+surface changed in this fix, so Docker/runtime/security-workflow checks were
+not rerun; their pending/unverified limitations above remain unchanged.
+
 MLflow 2.22.5 is explicitly paired with SQLAlchemy 2.0.51 because its database-store code imports a compatibility pool class removed in SQLAlchemy 2.1. A clean Python 3.11 install resolved Alembic 1.20.0 without an additional constraint, passed `pip check`, and passed all 20 registry/training tests that cover the prior CI failure before the full Phase 1 verification above was rerun.
+
+
+## Final Phase 5 checkpoint verification — 2026-10-02
+
+Before the final checkpoint commit, the complete 11-file Phase 5 diff was
+reviewed against HEAD `68dffa973c18eacf1da86786c477eff1c23089c5` on
+`hardening/phase-5-monitoring-security`. All final checks returned exit 0:
+`pytest tests/unit/test_drift.py -q` (41 passed), `pytest tests/unit -q`
+(178 passed), `pytest tests/integration -q` (21 passed), `pytest -q`
+(199 passed), and the verify skill's full coverage command (199 passed,
+87.50% coverage against the 75% minimum). The complete-report and categorical
+threshold regressions passed under each outer `PYTHONHASHSEED=1` and `3`
+(4 passed per seed). Ruff and Black checked `src tests scripts`; mypy checked
+`src`; `pip check`, both Compose profile renders, and `git diff --check`
+passed. Tests emitted dependency deprecation/schema warnings.
+
+The exact Slice 3 `make security-secret-scan` path ran with checksum-verified
+Gitleaks 8.30.1 and returned PASS with zero findings; evidence was written
+outside the repository. `make security-audit` initially exited 2 because the
+sandboxed collection returned no valid audit JSON. Its authorized network
+retry exited 0 and matched the accepted 28-advisory/2-package baseline.
+Accepted MLflow/PyArrow findings remain accepted findings, not remediation.
+API/MLflow image builds, Trivy scans, Syft SBOMs, NGINX runtime validation,
+and production-like E2E were NOT RUN at this checkpoint and remain
+pending/blocked as documented above. Remote workflow execution remains
+pending. No Phase 6 work or original stash contents are included.

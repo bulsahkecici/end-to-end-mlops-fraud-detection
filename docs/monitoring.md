@@ -78,6 +78,27 @@ histogram_quantile(0.95, rate(http_request_duration_seconds_bucket[5m]))  # p95 
 rate(fraud_predictions_total[1h]) / rate(predictions_total[1h])           # rolling fraud rate
 ```
 
+## Operator alert guidance
+
+No Alertmanager, paging, ticketing, or other delivery integration is installed
+by this repository. The following are initial operator-owned alert candidates,
+not claims that alerts are currently firing. Tune durations and thresholds from
+real traffic before making them paging rules, and keep the raw API key, request
+body, prediction values, and high-cardinality identifiers out of annotations.
+
+| Signal | Suggested initial trigger | Operator response |
+|---|---|---|
+| Authentication failures | `increase(authentication_failures_total[10m]) > 10`, or any sustained non-zero rate on a normally quiet service | Correlate bounded request IDs and reverse-proxy source metadata; check client configuration and rollout timing. Treat an unexplained burst as possible credential misuse and rotate the key through the deployment's secret-management process. |
+| Request-body rejection | `increase(request_body_size_rejections_total[10m]) > 10` | Determine whether a client regression or abusive traffic caused the increase. Confirm proxy and application limits agree; do not raise the limit until memory/load impact is reviewed. |
+| Semantic validation | Rejections exceed both 10 requests and 1% of `/predict` traffic over 10 minutes | Group only by the bounded `code` label, compare with client/schema releases, and inspect sanitized logs by request ID. A contract change requires explicit validation, tests, and documentation. |
+| Readiness or model load | Any sustained `model_loaded == 0`, repeated `readiness_failures_total` increase, or any `model_load_failures_total` increase during rollout | Check immutable deployment state, registry/artifact reachability, and the startup error class. Keep the instance out of rotation. Use the explicit deployment rollback only after identifying a known-good recorded target; liveness alone is not readiness. |
+| Drift report | Any check or overall result is `BREACH`; exit 2 is an execution/configuration incident | Verify reference/current sources, UTC windows, contract fingerprints, and model/run/deployment identity before interpreting drift. Investigate the breached bounded metric; do not automatically retrain, promote, deploy, or roll back. |
+| Deployment identity/change | `model_info` changes outside an approved window, or deployment logs show an unexpected deployment ID/action | Reconcile the exact model version, run ID, deployment ID, source commit, and append-only deployment history with the approved change. Remove traffic or explicitly roll back if identity cannot be explained. |
+
+Absence of samples is not success. Alerting infrastructure should separately
+detect scrape failure and missing targets so an unavailable metrics endpoint
+cannot silently look healthy.
+
 ## Drift monitoring
 
 Drift monitoring is an offline, reference-vs-current comparison with an
@@ -197,8 +218,9 @@ fail the command.
 
 ## What isn't covered
 
-- No automated alerting is wired up (Prometheus Alertmanager / PagerDuty
-  integration would be the natural next step, using the metrics above).
+- No automated alert delivery is wired up. The guidance above is a runbook and
+  starting policy, not evidence of a configured Prometheus Alertmanager,
+  PagerDuty, ticketing, or notification path.
 - No prediction-log persistence for offline drift analysis — the drift
   command expects the caller to supply a "current" CSV (e.g. exported from
   wherever inference requests are archived); this project does not itself

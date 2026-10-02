@@ -2,11 +2,15 @@
 
 ## Goal
 
-Strengthen distribution/performance monitoring and establish repeatable dependency, container, SBOM, and secret auditing.
+Strengthen distribution monitoring and establish repeatable dependency,
+container, SBOM, and secret auditing, with operational guidance that does not
+overstate deployed alert coverage.
 
 ## Scope
 
-- Add stronger distribution drift evidence and delayed-ground-truth performance monitoring.
+- Add stronger distribution drift evidence. Delayed-ground-truth performance
+  monitoring was evaluated and explicitly deferred because this repository has
+  no production prediction/label persistence or join contract.
 - Define actionable monitoring outputs and trace them to model/data versions.
 - Run and document dependency, container, SBOM, and secret-exposure checks.
 - Remediate findings only through compatible, tested changes.
@@ -29,13 +33,16 @@ Strengthen distribution/performance monitoring and establish repeatable dependen
 
 ## Required tests/verification
 
-- Deterministic drift and delayed-label metric tests, version/provenance tests, and failure-path tests.
+- Deterministic drift tests, version/provenance tests, failure-path tests, and
+  an explicit boundary for the deferred delayed-label pipeline.
 - Audits for Python dependencies, images, SBOM availability, and secrets, with tool gaps recorded.
 - Full relevant checks via `verify` and `security-audit` skills.
 
 ## Completion criteria
 
-- Drift and delayed-ground-truth performance can be computed with traceable inputs and actionable output.
+- Drift can be computed with traceable inputs and actionable output;
+  delayed-ground-truth performance remains an honest deferred scope decision,
+  not a readiness claim.
 - Security findings and compatible remediation status are documented and reproducible.
 - `docs/PROJECT_STATE.md` is updated.
 
@@ -129,3 +136,57 @@ with no NaN/Infinity, and its Markdown companion was manually inspected for
 matching provenance, feature, prediction, and status content. Gitleaks, Trivy,
 and Syft remained unavailable. Production-like Docker E2E was not rerun and
 remains blocked/unverified by the obsolete Community MinIO distribution.
+
+## Slice 3 — Security evidence and phase-wide closure
+
+Implemented a repeatable, bounded evidence path without starting Phase 6 or
+inventing unavailable production telemetry:
+
+- The manual `Security Evidence` GitHub Actions workflow checks out full Git
+  history, installs checksum-pinned Gitleaks 8.30.1, Trivy 0.69.3, and Syft
+  1.52.0 binaries, and fails closed on missing tools, version mismatch,
+  malformed evidence, scan failure, or findings. It is deliberately manual so
+  unknown image findings do not create an unreviewed permanently-red required
+  check; until executed, its outcome is pending rather than PASS.
+- Gitleaks scans reachable committed history with full secret-value redaction.
+  Real findings stop the workflow. Scanner failure and findings remain distinct
+  outcomes, and evidence/logging never intentionally prints the detected value.
+- Both API and MLflow images are built locally in the workflow. Trivy scans the
+  immutable local image IDs for HIGH/CRITICAL vulnerabilities without a broad
+  ignore rule, while Syft emits SPDX JSON SBOMs for those same IDs. A summary
+  binds tool versions, scan policy, source commit, tags, image IDs, reports, and
+  SBOM filenames. No registry push is needed.
+- Existing and new GitHub-maintained actions are pinned to immutable full SHAs;
+  checkout credentials are not persisted and workflow permissions are limited
+  to repository-content read access. No tag-based or third-party action remains.
+- Operator guidance now covers authentication failures, request-body rejection,
+  semantic validation, readiness/model-load failures, drift BREACH/error, and
+  deployment identity changes. These are proposed triggers and response steps,
+  not a claim of wired alert delivery.
+- The existing exact Python advisory baseline is retained. MLflow remains at
+  2.22.5: its reviewed 3.x-only/no-fix advisory set is contained but not
+  eliminated, and this slice does not guess at a major migration or container
+  runtime hardening without executable compatibility evidence.
+
+Phase-wide scope is now closed around delivered HTTP metrics/logging and
+network containment (Slice 1), deterministic reference-authoritative offline
+drift evidence (Slice 2), and reproducible security-evidence tooling plus
+operator guidance (Slice 3). Delayed-label performance, prediction/label
+persistence and joining, automatic alert delivery, automatic retraining/
+promotion/rollback, artifact signing, remote-registry publication, MLflow 3,
+MinIO replacement, Phase 6 release work, and speculative container-runtime
+changes remain outside Phase 5.
+
+Final verification facts are recorded in `docs/PROJECT_STATE.md`; tool or
+Docker limitations are reported as NOT RUN rather than inferred successes.
+
+Local verification on 2026-10-02 passed the 69-test focused security/monitoring
+set, 174 unit tests, 21 integration tests, the full 195-test suite, Ruff, Black
+check, mypy, `pip check`, the exact reviewed dependency baseline, both Compose
+profile renders, workflow YAML parsing, and `git diff --check`. A downloaded
+Gitleaks 8.30.1 archive matched its pinned SHA-256; the tool then scanned full
+reachable Git history with 100% redaction and returned zero findings. Docker
+daemon access was unavailable, so local API/MLflow builds, Trivy scans, image
+SBOM generation, NGINX runtime checks, and production-like E2E were NOT RUN.
+The manual CI evidence workflow remains pending execution, and production-like
+E2E remains independently blocked by the obsolete Community MinIO image.

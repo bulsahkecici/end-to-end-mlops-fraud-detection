@@ -1,7 +1,12 @@
-.PHONY: install lint format typecheck test coverage security-audit \
+.PHONY: install lint format typecheck test coverage security-audit security-secret-scan \
+        security-image-build security-image-evidence security-evidence \
         train-smoke train-ieee promote deploy deployment-status rollback serve \
         docker-build docker-up docker-down smoke-test production-e2e drift-report \
         up down
+
+SECURITY_EVIDENCE_DIR ?= reports/security-evidence
+SECURITY_API_IMAGE ?= ieee-fraud-api:security
+SECURITY_MLFLOW_IMAGE ?= ieee-fraud-mlflow:security
 
 # Windows (PowerShell) users: these targets are thin wrappers over plain
 # Python/pip/docker commands. If `make` isn't available, run the command on
@@ -32,6 +37,18 @@ coverage:
 security-audit:
 	python -m pip check
 	python scripts/audit_python_dependencies.py
+
+security-secret-scan:
+	python scripts/security_evidence.py secrets --repository . --output-dir $(SECURITY_EVIDENCE_DIR) --source-revision "$$(git rev-parse HEAD)"
+
+security-image-build:
+	docker build -f Dockerfile.api -t $(SECURITY_API_IMAGE) .
+	docker build -f Dockerfile.mlflow -t $(SECURITY_MLFLOW_IMAGE) .
+
+security-image-evidence: security-image-build
+	python scripts/security_evidence.py images --image api=$(SECURITY_API_IMAGE) --image mlflow=$(SECURITY_MLFLOW_IMAGE) --output-dir $(SECURITY_EVIDENCE_DIR) --source-revision "$$(git rev-parse HEAD)"
+
+security-evidence: security-audit security-secret-scan security-image-evidence
 
 train-smoke:
 	python -m src.modeling.train --data-source synthetic --n-synthetic 4000

@@ -542,8 +542,9 @@ def _total_variation(
 ) -> float:
     left = {str(item["bucket"]): float(item["share"]) for item in reference}
     right = {str(item["bucket"]): float(item["share"]) for item in current}
-    return 0.5 * sum(
-        abs(left.get(bucket, 0.0) - right.get(bucket, 0.0)) for bucket in set(left) | set(right)
+    buckets = sorted(set(left) | set(right))
+    return 0.5 * math.fsum(
+        abs(left.get(bucket, 0.0) - right.get(bucket, 0.0)) for bucket in buckets
     )
 
 

@@ -210,15 +210,48 @@ Phase 4.
   trusted internal network; features mentioned by several advisories (basic
   auth, jobs, AI Gateway, webhooks, model serving) are not enabled here, but
   artifact upload/deserialization findings remain relevant if that boundary
-  is compromised. The PyArrow advisory concerns a C++ pre-buffering API that
+  is compromised. Network containment reduces external exposure; it does not
+  remediate the advisories or eliminate artifact/internal-network compromise
+  risk. A future MLflow 3 migration requires explicit registry, artifact,
+  model-loading, lifecycle, and rollback compatibility verification. The
+  PyArrow advisory concerns a C++ pre-buffering API that
   its advisory says is not exposed through Python bindings, so the repository's
   Python Parquet usage is not believed reachable. The selected PyPI audit
   service did not return severity scores, so advisory IDs and reachability are
   recorded rather than invented severities.
-- **Tool coverage**: Gitleaks, Trivy, and Syft are not installed in the current
-  environment and are not silently substituted. Their secret-scan,
-  image-vulnerability, and SBOM coverage remains a documented gap until pinned
-  versions and reviewed baselines can be added without hiding accepted risk.
+- **Security evidence workflow**: `.github/workflows/security-evidence.yml` is
+  an explicitly manual, fail-closed workflow rather than a required-CI success
+  claim. It downloads Gitleaks 8.30.1, Trivy 0.69.3, and Syft 1.52.0 release
+  archives, verifies checked-in SHA-256 values before extraction, and rejects a
+  different reported tool version. Gitleaks scans the full reachable Git
+  history from a `fetch-depth: 0` checkout with 100% value redaction. A finding
+  exits non-zero; an execution failure is separately reported and never treated
+  as a clean scan.
+- **Image evidence and SBOMs**: the same manual workflow builds both
+  `Dockerfile.api` and `Dockerfile.mlflow`, resolves each local tag to its exact
+  `sha256:` image ID, and scans that immutable ID. Trivy reports unignored
+  HIGH/CRITICAL findings as `FINDINGS` (exit code 20 internally), independently
+  of scanner/runtime `ERROR`. Syft generates one SPDX JSON SBOM per exact image.
+  `images-summary.json` ties the requested tag, image ID, source commit, tool
+  versions, scan policy, Trivy report, and SBOM filename together. Redacted
+  secret evidence and image evidence are uploaded for 14 days even when a step
+  fails. No remote registry or mutable remote image digest is required.
+- **Local reproduction**: install exactly those three versions, then run
+  `make security-secret-scan` and `make security-image-evidence`; the latter
+  builds both images first. `make security-evidence` also runs the reviewed
+  Python dependency audit. Output defaults to the ignored
+  `reports/security-evidence/` directory. Exit 0 is clean, exit 1 means actual
+  findings, and exit 2 means tool/version/runtime/evidence failure. Never quote
+  a secret value from a report or log.
+- **GitHub Actions hardening**: both workflows set the token to
+  `contents: read`, disable persisted checkout credentials, and pin all used
+  GitHub-maintained actions to immutable full commit SHAs with version comments.
+  No third-party security action wrapper or remaining tag-based action is used;
+  the security tools themselves are checksum-pinned binaries.
+- **Execution status**: adding the manual workflow does not prove that it has
+  run. Local and CI execution facts, findings, and daemon/tool blockers are
+  recorded in `docs/PROJECT_STATE.md`; a pending or failed manual run must not
+  be described as PASS.
 
 ## Windows
 

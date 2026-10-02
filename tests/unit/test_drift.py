@@ -701,3 +701,86 @@ def test_unsupported_values_fail_closed_without_hash_seed_dependent_fingerprints
         "MonitoringContractError unsupported input value type for deterministic "
         "canonicalization: set"
     )
+
+
+def _borderline_categorical_cli_reports(tmp_path: Path, breach: float) -> list[tuple[dict, int]]:
+    counts = [1, 2, 3, 5, 7, 11, 13, 17, 19, 23]
+    args = _write_cli_inputs(tmp_path)
+    for filename, category_counts in (("reference.csv", counts), ("current.csv", counts[::-1])):
+        pd.DataFrame(
+            {
+                "category": [
+                    f"v{index}" for index, count in enumerate(category_counts) for _ in range(count)
+                ]
+            }
+        ).to_csv(tmp_path / filename, index=False)
+    contract = {
+        "contract_schema_version": "1.0",
+        "model": {"model_name": "m", "model_version": "1", "run_id": "r"},
+        "feature_schema": {"numeric_cols": [], "categorical_cols": ["category"]},
+        "monitoring": {"categorical_top_k": 10},
+        "thresholds": {"distribution_warn": 0.6, "distribution_breach": breach},
+    }
+    (tmp_path / "contract.json").write_text(json.dumps(contract))
+    reports = []
+    for seed in ("1", "3"):
+        seed_args = args.copy()
+        json_path = tmp_path / f"report-seed-{seed}.json"
+        seed_args[seed_args.index("--output-json") + 1] = str(json_path)
+        seed_args[seed_args.index("--output-markdown") + 1] = str(
+            tmp_path / f"report-seed-{seed}.md"
+        )
+        result = subprocess.run(
+            [sys.executable, "-m", "src.monitoring.drift", *seed_args],
+            cwd=Path(__file__).resolve().parents[2],
+            env={**os.environ, "PYTHONHASHSEED": seed},
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        assert result.returncode in (0, 1), result.stderr
+        report = json.loads(json_path.read_text())
+        assert json.loads(result.stdout) == report
+        assert report_exit_code(report) == result.returncode
+        reports.append((report, result.returncode))
+        print(
+            f"seed={seed} drift="
+            f"{report['semantic']['features'][0]['buckets']['total_variation_distance']} "
+            f"sha={report['semantic_identity_sha256']} "
+            f"status={report['semantic']['summary']['overall_status']} exit={result.returncode}"
+        )
+    first, second = reports
+    # Full equality covers input fingerprints, drift values, every check/status, and summary.
+    assert first[0]["semantic"] == second[0]["semantic"]
+    assert first[0]["semantic_identity_sha256"] == second[0]["semantic_identity_sha256"]
+    assert first[1] == second[1]
+    return reports
+
+
+def test_complete_cli_report_is_deterministic_across_hash_seeds(tmp_path):
+    reports = _borderline_categorical_cli_reports(tmp_path, 0.6435643564356437)
+    for report, exit_code in reports:
+        assert report["semantic"]["features"][0]["buckets"]["total_variation_distance"] == (
+            0.6435643564356436
+        )
+        assert report["semantic"]["summary"]["overall_status"] == WARN
+        assert exit_code == 0
+
+
+@pytest.mark.parametrize(
+    ("breach", "expected_status", "expected_exit"),
+    [
+        (np.nextafter(0.6435643564356436, -np.inf), BREACH, 1),
+        (0.6435643564356436, BREACH, 1),
+        (np.nextafter(0.6435643564356436, np.inf), WARN, 0),
+    ],
+)
+def test_categorical_threshold_boundary_is_hash_seed_independent(
+    tmp_path, breach, expected_status, expected_exit
+):
+    for report, exit_code in _borderline_categorical_cli_reports(tmp_path, float(breach)):
+        check = _check(report, "feature.category.distribution_shift")
+        assert check["observed"] == 0.6435643564356436
+        assert check["status"] == expected_status
+        assert report["semantic"]["summary"]["overall_status"] == expected_status
+        assert exit_code == expected_exit

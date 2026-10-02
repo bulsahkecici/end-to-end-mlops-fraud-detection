@@ -113,8 +113,12 @@ jobs:
 
       - name: Verify both final runtimes and live API lifecycle
         run: |
+          mkdir -p "${RUNNER_TEMP}/runtime-model"
+          chmod 777 "${RUNNER_TEMP}/runtime-model"
           for role in api mlflow; do
             docker run --rm -i --workdir /app \
+              -e SMOKE_MODEL_DIR=/shared \
+              -v "${RUNNER_TEMP}/runtime-model:/shared" \
               -v "${GITHUB_WORKSPACE}/src:/app/src:ro" \
               -v "${GITHUB_WORKSPACE}/docker/runtime_smoke.py:/runtime_smoke.py:ro" \
               "ieee-fraud-${role}:security-${GITHUB_SHA}" python /runtime_smoke.py

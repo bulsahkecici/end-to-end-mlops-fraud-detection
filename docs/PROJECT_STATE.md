@@ -415,3 +415,13 @@ an ELF-closure rootfs from the pinned official Trixie builder, preserving the
 complete CPython installation and package provenance. Runtime and fresh security
 validation are pending remote execution; no successful redesign or new count is
 claimed. No OS risk is accepted. Phase 6 remains blocked; stash is untouched.
+
+Initial redesign run 36998564053 failed at the ELF closure on the official slim
+base's already unavailable Tkinter extension (missing Tcl/Tk), before runtime
+or scan steps; Gitleaks and upload passed. The explicit headless exception
+rejects unexpected missing libraries and records the excluded broken extension.
+No supported stdlib extension is deleted for scanner reduction. Native-model
+pins in the MLflow image are aligned with the existing API serialization stack,
+and artifact-derived transitive constraints were added for reproducible Python
+resolution. Final local full suite: exit 0, 255 passed, 87.50% coverage. Remote
+validation of the corrected candidate remains pending; no Phase 6 work started.

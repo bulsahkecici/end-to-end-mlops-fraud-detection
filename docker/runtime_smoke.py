@@ -3,6 +3,7 @@
 import importlib
 import json
 import os
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -75,6 +76,16 @@ def main():
         mlflow.pyfunc.save_model(str(root / "model"), python_model=wrapper, artifacts=artifacts)
         actual = mlflow.pyfunc.load_model(str(root / "model")).predict(frame)
         pd.testing.assert_frame_equal(wrapper.predict(None, frame), actual)
+        shared = os.environ.get("SMOKE_MODEL_DIR")
+        if shared:
+            shared_root = Path(shared)
+            if not (shared_root / "model").exists():
+                shutil.copytree(root / "model", shared_root / "model")
+                actual.to_json(shared_root / "expected.json")
+            cross = mlflow.pyfunc.load_model(str(shared_root / "model")).predict(frame)
+            expected = pd.read_json(shared_root / "expected.json")
+            pd.testing.assert_frame_equal(expected, cross, check_exact=False, rtol=1e-8)
+
         env = os.environ.copy()
         env["MLFLOW_TRACKING_URI"] = f"sqlite:///{root}/tracking.db"
         process = subprocess.Popen(

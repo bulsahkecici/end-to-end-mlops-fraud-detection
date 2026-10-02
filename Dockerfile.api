@@ -3,7 +3,8 @@ FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92
 
 WORKDIR /build
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+COPY docker/api.constraints /constraints.txt
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt -c /constraints.txt
 
 FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS prepared
 

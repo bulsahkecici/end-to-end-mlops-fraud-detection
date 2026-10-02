@@ -40,6 +40,19 @@ def copy(path):
         shutil.copy2(source, destination)
 
 
+# The official slim image carries _tkinter without its GUI libraries. It is
+# already unusable there; do not add an X11/Tcl/Tk stack to a serving image.
+# Delete only that known broken optional extension, and reject any new missing
+# dependency. Working CPython extensions remain intact.
+excluded = []
+for path in Path("/usr/local/lib/python3.11/lib-dynload").glob("_tkinter.*.so"):
+    check = subprocess.run(["ldd", str(path)], capture_output=True, text=True, check=True)
+    missing = set(re.findall(r"(\S+) => not found", check.stdout))
+    if missing != {"libtk8.6.so", "libtcl8.6.so"}:
+        raise RuntimeError(f"Unexpected Tkinter baseline dependencies: {check.stdout}")
+    excluded.append({"extension": str(path), "missing_in_official_slim": sorted(missing)})
+    path.unlink()
+
 shutil.copytree("/usr/local", ROOT / "usr/local", symlinks=True)
 packages = {"ca-certificates", "tzdata", "openssl-provider-legacy", "openssl", "gcc-14-base"}
 edges = []
@@ -97,6 +110,14 @@ for directory in ["tmp", "app", "db", "var/lib/dpkg", "usr/share/runtime"]:
 subprocess.run(["ldconfig", "-r", str(ROOT)], check=True)
 (ROOT / "var/lib/dpkg/status").write_text("\n\n".join(status) + "\n")
 (ROOT / "usr/share/runtime/closure.json").write_text(
-    json.dumps({"packages": sorted(packages), "elf_dependencies": edges}, indent=2) + "\n"
+    json.dumps(
+        {
+            "packages": sorted(packages),
+            "elf_dependencies": edges,
+            "unavailable_desktop_extensions": excluded,
+        },
+        indent=2,
+    )
+    + "\n"
 )
 print(json.dumps({"packages": sorted(packages), "elf_dependency_count": len(edges)}))

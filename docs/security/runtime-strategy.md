@@ -61,3 +61,24 @@ provider roots require actual tests. Every source/base refresh must rerun the
 closure, runtime and security evidence gates. Runtime or policy failure blocks
 merge. Any residual OS acceptance requires a separate human decision; none is
 added to the baseline here.
+
+## First real-build correction
+
+Run 36998564053 failed closed on `_tkinter`: the official slim base carries the
+extension but lacks `libtk8.6.so` and `libtcl8.6.so`. Installing a desktop GUI
+stack would expand the serving surface. The collector explicitly verifies those
+exact pre-existing missing libraries and excludes only the already unusable
+Tkinter extension. Every working standard-library extension, including curses,
+readline and UUID, remains present. This exception is unrelated to vulnerability
+counts and is recorded in the closure manifest. Unknown missing libraries still
+fail the build. The default TLS paths and generated loader cache are preserved.
+
+Artifact-derived Python version constraints prevent transitive resolver drift.
+For both-image model loading, the MLflow image's numpy/pandas/sklearn/joblib pins
+are aligned to the unchanged API model stack; PyArrow remains 19.0.1 in MLflow
+and 17.0.0 in API, preserving the exact reviewed baseline identities. A shared
+API-created model is loaded and compared in the MLflow image in remote tests.
+This is a documented compatibility prerequisite, not a model-methodology change.
+OS apt refresh remains an upstream mutable input; every build records actual
+versions and requires runtime/scanner revalidation rather than claiming bitwise
+reproducibility from a pinned base alone.

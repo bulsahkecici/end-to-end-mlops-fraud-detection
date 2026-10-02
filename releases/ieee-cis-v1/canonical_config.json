@@ -1,0 +1,60 @@
+{
+  "calibration_strategy": "none",
+  "cat_nunique_max": 200,
+  "categorical_strategy": "ordinal_drop_high_cardinality",
+  "cost": {
+    "false_negative": 25.0,
+    "false_positive": 1.0
+  },
+  "data_source": "ieee",
+  "development_promotion_share": 0.5,
+  "early_stopping_metric": "auc",
+  "early_stopping_rounds": 20,
+  "environment": {
+    "lightgbm_version": "4.6.0",
+    "mlflow_version": "2.22.5",
+    "numpy_version": "2.0.2",
+    "pandas_version": "2.2.3",
+    "platform": "macOS-26.6.2-arm64-arm-64bit",
+    "python_version": "3.11.15",
+    "sklearn_version": "1.5.2"
+  },
+  "experiment_name": "ieee-cis-v1",
+  "final_test_policy": "Reporting once after frozen immutable promotion and deployment; no selection",
+  "full_data_rationale": "36 GiB host RAM; optimized transaction dtypes; 590540 labelled rows",
+  "model_name": "ieee_fraud_lgbm",
+  "model_params": {
+    "colsample_bytree": 0.9,
+    "learning_rate": 0.05,
+    "n_estimators": 500,
+    "n_jobs": -1,
+    "num_leaves": 31,
+    "objective": "binary",
+    "random_state": 42,
+    "subsample": 0.8,
+    "subsample_freq": 5,
+    "verbosity": -1
+  },
+  "promotion_policy": {
+    "max_regression": 0.02,
+    "min_pr_auc": 0.1,
+    "min_recall": 0.1
+  },
+  "random_seed": 42,
+  "release_id": "ieee-cis-v1",
+  "sample_rows": null,
+  "sampling_strategy": "time_ordered",
+  "selection_pool_calibration_share": 0.5,
+  "source_commit": "825967251d19b97d6650fae4f3c889f032ea98f7",
+  "source_fingerprint": "a01f77eaa792c8346a876102fa3c717f7361ccd4e14fe1a57735b86816c7ab75",
+  "split_ratios": {
+    "development": 0.15,
+    "final_test": 0.15,
+    "train": 0.7
+  },
+  "split_strategy": "temporal",
+  "splits_fingerprint": "eb07af7a78de89498a45472a456a088c84d756d4735b913c7bef0301c3600c47",
+  "threshold_strategy": "best_f1",
+  "tracking": "isolated SQLite with local artifacts under artifacts/releases/ieee-cis-v1",
+  "variant_id": "ieee-cis-v1-ordinal-none"
+}

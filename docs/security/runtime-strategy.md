@@ -1,174 +1,135 @@
-# Phase 5 runtime strategy comparison
+# Phase 5 production runtime decision
 
-PR #7 exact head `0f57c602b0bccd97f47e01d17e5ba81fb4f1c814` passed
-all three CI jobs in run 36996881845. It remains unmerged pending runtime review.
-Artifact 11221757189 was independently downloaded from GitHub. Its API and MLflow
-OS tuples (CVE, package, severity, installed/fixed version) are identical:
-44 HIGH findings, 17 binary packages, eight CVEs. The adjacent CSV lists every
-identity and actual SPDX DEPENDENCY_OF edges. SPDX edges establish Debian package
-relationships; they do not establish application reachability. Python packages
-are not directly dependent on those 17 binary packages in the SPDX graph.
+The selected runtime is **public Wolfi with upstream Python 3.11.17**, using
+matched builder/runtime packages and a venv. Both images preserve MLflow 2.22.5,
+the API/model contract, auth/network configuration and separate promotion and
+deployment lifecycle. No model methodology or Phase 6 work is included.
 
-## Alternatives
+## Exact original OS inventory
 
-| Option | Compatibility / security evidence | Reproducibility / maintenance / operation |
-| --- | --- | --- |
-| A: official 3.11.17 slim Trixie | Prior real containers pass serialization, pyfunc and CLI checks; 66 findings: 44 OS + 22 reviewed Python. All requested native wheels use glibc; certificates, timezone and full stdlib present. | Pinned digest; apt refresh still time-dependent. Shell and apt ease diagnostics but retain unnecessary system tools. Prior artifact has exact IDs; fresh size is recorded by image inspect. |
-| B: Debian distroless Python/runtime | Native Python3 Debian13 is 3.13, violating required 3.11. Debian12 Python3 uses 3.11 but reverts the OS remediation and differs from the current builder ABI. Base-debian13 could host copied CPython plus missing libraries, requiring the same closure work as D and a second base provider. Counts/size for an unbuilt application image are unknown. | Maintained glibc, certs and timezone; no shell. Matching builder/runtime required by upstream docs. Overlay must retain additional package metadata and reconcile library versions. Not selected. |
-| C: Chainguard/Wolfi Python | Public latest is 3.14; upstream catalog lists 3.11 behind access contact. glibc avoids musl risk but access and exact wheel/pyfunc compatibility are unverified. No application count/size claim. | Would add another distro, package mapping and credentials/commercial-access dependency. Building Wolfi Python ourselves increases maintenance. Not selected. |
-| D: minimal rootfs assembled from current builder | Keep entire CPython 3.11 and installed wheels, discover every ELF dependency, copy complete owning Debian library packages. Preserve certs, timezone, locale support, NSS configuration and SSL provider. No optional Python module is silently removed. Exact counts, size and compatibility pending remote execution. | Single stable Debian source; no bespoke distro compilation or unstable mixing. Preserve dpkg status/file metadata, license files and per-ELF ownership evidence. No package manager/shell in final image; diagnostic Python and logs remain. Rebuild rather than patch live images. |
-| E: selectively remove packages from official image | Debian Essential login/util-linux/perl tooling cannot safely be removed with ordinary apt purge. Force removal violates package-manager assumptions and can leave libraries and vulnerabilities. Smaller safe removals cannot eliminate their retained Essential closure. | Small source diff but dangerous deletion/maintenance semantics if forced. Not selected. |
+Artifact 11221757189 from run 36996203975 was independently downloaded. API and
+MLflow have identical tuples of CVE/package/severity/installed/fixed version:
+**44 HIGH findings across 17 binary packages and eight CVEs**. All have no
+reported stable Trixie fix. [The CSV](trixie-os-inventory.csv) lists every tuple,
+SPDX DEPENDENCY_OF edges, origin, direct application need, and actual ELF/data
+closure evidence. SPDX package dependencies alone are not reachability proof.
 
-Primary sources checked 2026-10-02:
-[distroless Python requirements](https://github.com/GoogleContainerTools/distroless/blob/main/python3/README.md),
+Working CPython's curses, readline and UUID extensions select libncursesw6,
+libtinfo6 and libuuid1; terminal data additionally selects ncurses-base. Their
+need is preservation of supported stdlib behavior, not a direct application
+requirement. The other 13 packages belong to base shell/coreutils, login/mount,
+Perl or apt infrastructure and are absent from a successfully executed native
+closure. No finding was dismissed using its package name alone. Wolfi replaces
+that Debian package set with its supported native dependency closure.
+
+## Five-strategy comparison
+
+| Dimension | A: official Python slim Trixie | B: Debian distroless | C: public Wolfi, selected | D: custom minimal rootfs | E: selective apt removal |
+| --- | --- | --- | --- | --- | --- |
+| Python 3.11 | Exact 3.11.17, proven | Native Debian13 Python is 3.13; Debian12 uses 3.11 but reverts distro/ABI source | Exact upstream package 3.11.17-r0, proven | Copied current 3.11.17, proven | Same as A if safe removal |
+| MLflow 2.22.5 | Proven wrapper/CLI | Unverified on a matched 3.11 overlay | Proven import, CLI and live server | Proven imports/live server | Unverified after removal |
+| LightGBM | API libgomp import/model tested | Needs matching OpenMP/C++ libraries | Both images import, fit, serialize and load; pinned libgomp/libstdc++ | Complete discovered native package closure, tested | Removal must preserve libgomp/C++ |
+| pandas/numpy/scipy/sklearn | API model stack tested | Wheels require matched glibc and Python | Both-image imports and API-created cross-image model load proven | Both-image imports/load proven | Same wheels; dependency deletion risk |
+| PyArrow | 17.0.0 API / 19.0.1 MLflow, proven | Requires native library/ABI tests | Existing versions retained, imported and used in lifecycle | Existing versions tested | Existing versions, unverified after removal |
+| glibc | Debian 2.41 | Debian13 maintained glibc; copied runtime needs reconciliation | Actual glibc-2.44 2.44-r7 provider; existing binary wheels tested | Same Debian library source as builder | Same Debian libraries if retained |
+| SSL/certificates | Existing support | Base includes glibc/SSL/certs | Trust-store/native SSL checks pass; exact cert package pinned | Explicit default paths/provider preserved and tested | Apt must retain SSL/trust files |
+| Timezone/locale | Existing full defaults | Base includes tzdata | Timezone pin, Europe/Istanbul lookup, C.UTF-8, proven | Explicit timezone/C.UTF-8/native data roots tested | Retention must be demonstrated |
+| Subprocess/shell | Shell present | No shell by default; argv CLI possible | Upstream BusyBox shell retained; actual MLflow argv subprocess passes | No shell; actual MLflow argv subprocess passes | Removing Essential shell/tool chains is unsafe |
+| Serialization/model loading | Existing artifact tested | No actual compatible 3.11 application image | Joblib and API-created MLflow pyfunc loaded in both images | Same tests pass | Not established after removal |
+| API/health/readiness/prediction | Prior normal CI and smoke | Not proven | Full non-root nine-step container lifecycle passes | Same lifecycle passed | Not proven after removal |
+| Debugging/operability | Familiar Debian/apt/shell | Python/logs plus external debug container | Standard APK inventory, shell and Python/logs; rebuild immutable image for fixes | Python/logs only; repository maintains assembler and loader/data roots | Familiar tools but forced Essential removal breaks package assumptions |
+| Image size, Trivy reported bytes API / MLflow | 1,048,168,448 / 998,974,464 | No compatible application image built; unknown | Initial no-pip evidence 993,805,312 / 970,566,656; locked final artifact recorded below | 978,921,472 / 955,992,064 | Not built; unknown |
+| HIGH/CRITICAL count | 66 = 44 OS + 22 Python | Not measured; no zero-CVE claim | 22 = 0 OS + 22 already reviewed Python; all 38 OS packages covered | Apparent 22 **invalid**: Trivy missed the OS while Syft retained vulnerable Debian libraries | Safe removal cannot eliminate the Essential dependency closure; exact new count unknown |
+| Reproducibility | Base pinned; apt/transitive resolver mutable | Additional base provider and overlay reconciliation | Base digest, all 38 APK versions, complete application constraints pinned; binary wheels only | Base pinned but apt mutable, custom copied-package provenance | Mutable apt; forced deletion is fragile |
+| Maintenance | Simple but stable fixes unavailable | 3.11 runtime overlay requires closure maintenance | Standard upstream packages and short Dockerfiles; deliberate lock refreshes require all gates | Custom ELF/data/loader/NSS logic and scanner-recognition work | Essential-package surgery has high maintenance/regression risk |
+
+A and E cannot safely eliminate the remaining Debian Essential/base tooling
+closure. B's native Debian13 interpreter violates the 3.11 requirement; combining
+a copied 3.11 interpreter with distroless base adds the custom closure and
+multiple-provider reconciliation work. C avoids a bespoke distro build and all
+optional-extension/rootfs deletion logic. D was investigated but rejected after
+independent artifact inspection found a scanner coverage defect. C's selection
+rests on standard package maintenance and actual compatibility, as well as
+material OS reduction. Alpine/musl and unstable Debian mixing were not selected.
+
+Primary upstream sources checked 2026-10-02:
+[distroless Python matching requirements](https://github.com/GoogleContainerTools/distroless/blob/main/python3/README.md),
 [distroless base contents](https://github.com/GoogleContainerTools/distroless/blob/main/base/README.md),
-[Chainguard Python versions](https://images.chainguard.dev/directory/image/python/versions).
-The inspected distroless base-debian13 nonroot index is
-`sha256:a0d70d6a97cd697d9362bc2aae4a6560dd65817e365d0043b07325a97975dc91`;
-this is comparison evidence, not a dependency of the selected design.
+[Chainguard Python catalog](https://images.chainguard.dev/directory/image/python/versions),
+[public Wolfi package repository](https://github.com/wolfi-dev/os), and the downloaded
+[actual APK index](https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz).
+The catalog's paid 3.11 ready-made image does not prevent using the public upstream
+3.11 package; this was verified independently rather than assumed from marketing.
+The inspected distroless comparison index was
+`sha256:a0d70d6a97cd697d9362bc2aae4a6560dd65817e365d0043b07325a97975dc91`.
 
-## Selected design and limits
+## Production design and compatibility prerequisite
 
-D is the test candidate: retain Trixie as the matched builder/library source and
-replace only the final rootfs. All native dependency packages are copied whole,
-not selected libraries with hidden provenance. The collector fails on unresolved
-or unowned ELF dependencies. Explicit non-ELF roots cover certificates, timezone,
-NSS and OpenSSL's dynamically loaded provider. Full package status is retained
-for scanning, even though installer-only dependencies are absent and this is not
-an apt-installable system. No Python stdlib extension is deleted merely to hide a
-CVE. The closure manifest records actual loaded-library ownership.
+Both Dockerfiles use public Wolfi index
+`sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d`.
+The same [38-package OS lock](../../docker/wolfi.packages) applies in builder and
+runtime, including Python, actual libc provider, OpenMP/C++ runtime, certificates
+and timezone. Exact unavailable versions fail the build. Python application
+constraints originate from the original SBOM; API model pins remain unchanged.
+MLflow adds LightGBM and aligns numpy/pandas/sklearn/joblib with API as the minimal
+prerequisite for the requested both-image production-model loading. PyArrow
+remains API 17.0.0 / MLflow 19.0.1 to preserve the exact reviewed identities.
 
-MLflow 2.22.5 server invokes gunicorn via an argv subprocess, not a shell
-(`mlflow/server/__init__.py` -> `_exec_cmd`). Compose API/MLflow commands and
-health checks also use argv. Projects/environment creation and interactive shell
-sessions are not part of these production serving images. Use the builder or a
-separate diagnostic container for shell-based investigation. Python exec health
-checks are required in the shell-free final rootfs.
+Both builders and final layers run pip check. After that check the final layer
+uninstalls pip itself through its supported uninstall operation; setuptools and
+wheel distributions were already removed after dependency installation. This
+removes pip 26.2.1's newly vulnerable private copies of setuptools, msgpack and
+urllib3. Independently inspecting latest upstream pip confirmed those vendor
+versions remain there; upgrading application urllib3 cannot fix private copies.
+No OS-owned ensurepip/wheel payload or APK metadata is deleted or rewritten.
+Final runtime smoke verifies build-tool distributions are absent and all actual
+services/model paths work without installers. pip check after removal is not
+applicable; the successful build-time checks remain required.
 
-MLflow image adds pinned LightGBM 4.6.0 and libgomp1 solely to satisfy the requested
-both-image native import and production-model pyfunc compatibility checks; its
-existing MLflow/PyArrow versions remain unchanged. API keeps uid/gid 10001;
-MLflow retains its existing user/volume behavior. Network/auth and lifecycle
-remain unchanged. Runtime tests include full stdlib native imports, trust store,
-timezone, all requested ML imports, serialization and pyfunc prediction, live
-MLflow server health, and the existing nine-step API lifecycle run in the final
-non-root API container with throwaway writable mounts. Synthetic checks establish
-plumbing only. The MinIO production-stack blocker remains independent.
+The API retains uid/gid 10001. MLflow retains its existing user and volume
+behavior. Health checks use Python argv. No registry alias, deployment state,
+auth setting, network boundary, MinIO implementation or application source is
+changed. Projects/environment creation is a build/development operation; serving
+loads the existing fitted model in-process. Use the builder for pip-based work.
 
-The build script is intentionally small; it does not promise arbitrary native
-plugins loaded through ctypes/dlopen. The selected dependencies and explicit
-provider roots require actual tests. Every source/base refresh must rerun the
-closure, runtime and security evidence gates. Runtime or policy failure blocks
-merge. Any residual OS acceptance requires a separate human decision; none is
-added to the baseline here.
+## Evidence coverage and failure history
 
-## First real-build correction
+PR #7 head 0f57c602b0bccd97f47e01d17e5ba81fb4f1c814 passed all three CI jobs
+in run 36996881845 before this work. Its Trixie runtime is superseded by C; the
+exact Gitleaks exception and other follow-up fixes are retained in PR #8.
 
-Run 36998564053 failed closed on `_tkinter`: the official slim base carries the
-extension but lacks `libtk8.6.so` and `libtcl8.6.so`. Installing a desktop GUI
-stack would expand the serving surface. The collector explicitly verifies those
-exact pre-existing missing libraries and excludes only the already unusable
-Tkinter extension. Every working standard-library extension, including curses,
-readline and UUID, remains present. This exception is unrelated to vulnerability
-counts and is recorded in the closure manifest. Unknown missing libraries still
-fail the build. The default TLS paths and generated loader cache are preserved.
+Custom-rootfs runs 36998564053 and 36998784035 failed on the official slim base's
+already unavailable Tkinter libraries. Run 36999096176 caught an inspection
+context error for psycopg2's private auditwheel libraries. Neither failure was
+represented as passing. D run 36999526356 / artifact 11223635441 passed runtime,
+but its apparent security ACCEPTED is rejected: OS.Family=none, only Python
+results, and Syft retained libuuid/ncurses. The final evidence runner requires
+recognized Debian/Wolfi OS, lists all OS packages, and reconciles every Syft OS
+name/version against Trivy. Missing coverage fails closed. Full Debian epoch and
+release fields are preserved. Regression tests capture each blind-spot case.
 
-Artifact-derived Python version constraints prevent transitive resolver drift.
-For both-image model loading, the MLflow image's numpy/pandas/sklearn/joblib pins
-are aligned to the unchanged API model stack; PyArrow remains 19.0.1 in MLflow
-and 17.0.0 in API, preserving the exact reviewed baseline identities. A shared
-API-created model is loaded and compared in the MLflow image in remote tests.
-This is a documented compatibility prerequisite, not a model-methodology change.
-OS apt refresh remains an upstream mutable input; every build records actual
-versions and requires runtime/scanner revalidation rather than claiming bitwise
-reproducibility from a pinned base alone.
+First Wolfi run 37000028810 / artifact 11223930869 passed real runtime but failed
+with four unreviewed Python vendor findings per image. They were removed by
+uninstalling final-runtime pip; none was accepted. Strengthened-policy run
+37000880713 / artifact 11223812938 then passed with 22 exact reviewed Python
+findings, zero OS/unreviewed/stale findings, zero changed fix snapshots, and
+38/38 Trivy/Syft OS coverage. Both SPDX documents parse, all tools are checksum
+pinned, and both scans bind exact immutable image IDs. Final all-package-lock
+run 37001197837 also completed successfully; its artifact is independently
+inspected and recorded in PROJECT_STATE.md before merge.
 
-Run 36999096176 then caught an inspection-context issue: psycopg2's private
-Kerberos libraries rely on the importing extension's auditwheel RPATH. A
-standalone ldd of those private objects does not inherit that entrypoint RPATH.
-Each build-time inspection now includes only the inspected object's sibling
-library directory. No runtime LD_LIBRARY_PATH or library replacement is used;
-real psycopg2/native imports and server execution remain mandatory.
+## Limits and refresh policy
 
-Terminal runtime data (ncurses-base) and readline configuration are explicit
-non-ELF roots when their corresponding CPython libraries are retained. Smoke
-validation exercises curses terminfo and both UUID1/UUID4 paths, rather than
-claiming support from imports alone. The vulnerable CLI executables infocmp,
-nsenter and mount must be absent from both final images. This permits precise
-reachability review of any conservatively source-mapped residual findings.
+Synthetic tests prove container/model plumbing only, not IEEE-CIS performance.
+Authoritative containers run on GitHub's Linux amd64 runner; arm64 execution is
+not claimed. Existing MinIO distribution prevents the independent complete
+production-like Postgres/S3/NGINX stack test, which is not represented as passing.
+The 22 existing MLflow/PyArrow risks remain reviewed residuals, not remediation
+or false positives; their reviews expire 2026-11-01. No OS residual is accepted.
 
-## Public Wolfi evidence changes the selection
-
-The independently downloaded public `https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz`
-contains **python-3.11 and python-3.11-base 3.11.17-r0**, current glibc 2.43-r13,
-ncurses 6.6.20260926-r0, libgomp/libstdc++ 16.2.0-r1, certificates 20260909-r2
-and timezone data 2026e-r0. Thus the initial catalog-only conclusion about C
-was incomplete: the paid ready-made image is not the only supported route.
-
-C is now the selected candidate, pending real validation. Digest-pinned public
-Wolfi plus its version-pinned Python/native packages avoids custom rootfs/ELF
-maintenance, optional-extension deletions, distro compilation and unstable Debian
-mixing. A matched builder/runtime venv preserves the existing pinned Python model
-stack. Binary wheels only; pip check in builder and final runtime. Python
-build-tool distributions are removed after installation; APK metadata remains
-intact. No source/package database files are surgically deleted. The final source
-diff removes the experimental D collector. A shell and APK are retained as
-ordinary upstream distro components; their actual security results must pass.
-
-The complete requested imports, native stdlib/certificates/timezone checks,
-cross-image serialization/pyfunc, live MLflow, and the non-root nine-step API
-lifecycle remain required. No compatibility or security count is inferred from
-the Wolfi name. D runtime evidence remains useful comparison data, not the final
-production strategy. Any newly unreviewed finding fails the unchanged policy.
-
-## Independent comparison artifact rejects the apparent D green
-
-Run 36999526356 / artifact 11223635441 passed runtime tests but its apparent
-security ACCEPTED is **invalid for an OS-remediation conclusion**: Trivy metadata
-says `OS.Family=none`, includes only Python results, while Syft finds retained
-libuuid1/ncurses packages. Actual sizes were 957,029,758 bytes API and
-935,217,269 bytes MLflow. This is a scanner-coverage defect, not zero OS risk.
-D is rejected. The final evidence runner now requests all packages, requires a
-recognized Debian/Wolfi OS and nonempty OS package result, and reconciles every
-Syft Debian/APK package name/version against Trivy's scanned OS inventory.
-Missing OS coverage or an omitted package fails closed. Six new regression cases
-cover undetected OS, missing OS result, missing/mismatched inventory and Wolfi
-identity support. The vulnerability baseline and acceptance identities are
-unchanged. Wolfi keeps native APK databases/OS identification without rewriting.
-
-## Wolfi runtime passed; remove unnecessary installer findings
-
-Run 37000028810 / artifact 11223930869 passed both fresh builds, both-image
-native/certificate/timezone/pyfunc/cross-image tests, live MLflow and non-root
-nine-step API lifecycle. Trivy recognized Wolfi and scanned 38 APK packages,
-with zero OS findings. Per image it found 26 Python findings: 22 exact reviewed
-matches and four unreviewed findings, zero stale reviews. Those four originate
-from pip 26.2.1's vendor.txt: setuptools 70.3.0 (CVE-2025-47273), msgpack 1.1.2
-(GHSA-6v7p-g79w-8964), urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97689).
-Installed application urllib3 is already 2.8.0; upgrading that distribution
-does not patch pip's private copies. Independently downloaded latest upstream
-pip 26.2.1 confirms those exact vendor pins. No new finding is baselined.
-
-The final runtime validates dependencies with pip check before uninstalling pip
-itself using its supported uninstall operation. No runtime installer is required
-for existing in-process model loading or MLflow/Gunicorn service startup. The
-matched builder retains pip and performs the same checks before copying the
-venv. Final smoke asserts pip/setuptools/wheel distributions are absent, then
-repeats serialization/load/live server/API tests without them. pip check is
-not applicable after installer removal; its successful final-layer execution
-before removal is build evidence. OS-owned ensurepip/wheel files and native APK
-databases are not deleted or rewritten. Actual fresh scans must establish that
-this removes the active vendor findings without losing OS coverage.
-
-OS identity reconciliation accounts for Trivy's separate Debian Epoch/Release
-fields; a raw Version-only comparison would incorrectly reject valid evidence.
-Explicit regressions cover full Debian and APK versions.
-
-Both final runtimes now pin **all 38 APK package versions** from the actual
-compatible Wolfi artifact, including its glibc-2.44 2.44-r7 provider. The earlier
-public-index glibc 2.43 listing is not the installed provider selected by the
-pinned base. The same checked-in package lock is applied to builder/runtime;
-unavailable exact versions fail the build instead of silently resolving newer
-packages. Together with the base digest and complete Python constraints this
-makes dependency resolution reproducible. Source-repository/package availability
-remains an external build dependency; refreshes require revalidation.
+Pinned packages still depend on upstream artifact availability. This provides
+reproducible dependency resolution, not a bitwise image claim: file timestamps,
+runner and scanner databases may change. Intentional base/package refreshes must
+repeat native/cross-image/live-service tests, normal CI, Gitleaks, SPDX and the
+unchanged exact-baseline plus OS-coverage gates. APK/shell remain ordinary distro
+components with measured coverage; the design makes no claim that they are absent.

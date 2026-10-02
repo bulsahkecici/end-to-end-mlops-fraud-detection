@@ -271,14 +271,20 @@ changed findings/fix snapshots, and expired reviews fail closed. Stale entries
 fail closed until reviewed and reconciled. Never extend the baseline merely to
 make CI green; obtain fresh image evidence and document each unavoidable risk.
 
-The runtime images use digest-pinned Python 3.11.17 slim Trixie, upgrade
-Debian packages, and remove setuptools/wheel after
-installation. The canonical prediction process and MLflow tracking server do
-not use these build tools directly; arbitrary environment-building operations
-are outside this image policy. Python 3.11 and MLflow 2.22.5 remain unchanged.
-Container compatibility and OS vulnerability reduction remain pending fresh
-remote builds/scans because local Colima is unavailable. Existing network
-containment remains unchanged. See the post-Phase-5 section in
-`docs/production-hardening/PHASE_05_MONITORING_SECURITY.md` for review expiry,
-PyArrow constraints, and the MLflow migration boundary. Phase 6 is blocked
-until remediation verification completes.
+The runtime images use digest-pinned public Wolfi with Python 3.11.17 and a
+shared exact APK package lock. Matching builder/runtime venvs retain MLflow
+2.22.5 and the fitted-model contract; API uid/gid remains 10001. Application
+Python constraints freeze resolution, and wheels are installed without building
+native sources. Both builder and final layer run pip check before runtime pip,
+setuptools and wheel distributions are removed. Existing in-process model
+loading and the MLflow/Gunicorn server are verified without those installers;
+use the builder for package/environment construction.
+
+The evidence gate requires recognized Debian/Wolfi OS and reconciles every Syft
+OS package name/version against Trivy, including Debian epoch/release fields.
+Missing OS coverage fails closed even if Python findings are reviewed. No OS
+risk is baselined. See [the runtime decision](security/runtime-strategy.md) for
+alternatives and real container evidence, and [project state](PROJECT_STATE.md)
+for exact CI/artifact status and the Phase 6 gate. Local Colima remains
+unavailable; authoritative runtime/security checks execute in GitHub Actions.
+Existing network containment and the independent MinIO blocker are unchanged.

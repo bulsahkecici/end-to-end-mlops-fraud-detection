@@ -49,7 +49,8 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
   project's product and licensing assumptions. Selecting a maintained
   S3-compatible object store is a future infrastructure decision, not a Phase 4
   implementation defect; the blocker is not expected to resolve automatically.
-- Container base/service references remain tag-based rather than digest-pinned.
+- API and MLflow bases, OS package versions and Python dependency constraints
+  are pinned. Other Compose service references retain their existing tags.
 - Synthetic runs validate plumbing only; no canonical real IEEE-CIS release metrics are recorded.
 - MLflow 2.22.5 remains pinned. The 2026-10-01 `pip-audit` result contains 54
   raw findings (28 unique advisory IDs) across runtime-reachable MLflow and
@@ -464,3 +465,65 @@ actual APK package versions are now locked, including the glibc-2.44 2.44-r7
 provider selected by the pinned base; builder and final runtime use the same lock.
 This prevents transitive OS provider drift. The first API/native model stack is
 otherwise unchanged, with both-image Python constraints pinned as documented.
+
+
+## Fully locked runtime branch verification — 2026-10-02
+
+Selected strategy C is digest-pinned public Wolfi with upstream Python 3.11.17,
+all 38 native APK versions pinned and complete application Python constraints.
+[Runtime comparison](security/runtime-strategy.md) and the exact 44-row/17-package
+[original inventory](security/trixie-os-inventory.csv) document the decision.
+PR #7's Trixie runtime is superseded; its Gitleaks fix and follow-up evidence are
+retained in PR #8. No change to application inference, model methodology,
+registry/deployment lifecycle, authentication/network architecture, MLflow major
+version, MinIO, or vulnerability risk baseline is included.
+
+Authoritative branch run **37001197837**, source
+`a3e4fef55681277dd23e728b983c9224e5aa3a25`, artifact **11223908196**, completed
+successfully. It was independently downloaded and every report inspected:
+
+- Gitleaks 8.30.1: full history, zero findings, PASS.
+- Fresh API and MLflow builds: PASS; pip check in builder and final layer before
+  pip removal, then both final runtimes prove no pip/setuptools/wheel distribution.
+- Both-image native imports, trust store, Europe/Istanbul timezone, curses
+  terminfo, UUID paths, joblib/MLflow pyfunc roundtrip and an API-created model
+  loaded in both images: PASS. MLflow 2.22.5 live server health: PASS in both.
+- Non-root API container's nine-step synthetic training/candidate/promotion/
+  deployment/startup/health/immutable readiness/single and batch prediction:
+  all PASS. These are plumbing checks, not IEEE-CIS performance.
+- Checksum-pinned Trivy 0.69.3: ACCEPTED in both; **22 findings/image**, **14 HIGH**,
+  **8 CRITICAL**, **0 OS**, **22 Python**, **22 reviewed**, **0 unreviewed**,
+  **0 stale**, **0 changed fixed-version snapshots/newly fixable findings**.
+- OS coverage: recognized Wolfi; **38 Trivy / 38 Syft** exact installed OS
+  package identities match in each image. Syft 1.52.0 SPDX 2.3: PASS;
+  129 API packages and 119 MLflow packages.
+- API immutable ID:
+  `sha256:e1970703e50b299f5c57f6b869bba033579d548b6a251672023003286abaeb89`.
+- MLflow immutable ID:
+  `sha256:eb25d3df7a281828653bf88cff206def5aa5111b718c83e0cd6a1a10888d3bce`.
+- Trivy-reported sizes: 993,807,872 API / 970,569,216 MLflow bytes.
+
+Per-image HIGH/CRITICAL progression: **132 → 85 → 66 → 22**.
+OS progression: **107 → 63 → 44 → 0**. The final 22 are explicitly reviewed
+MLflow/PyArrow residuals expiring 2026-11-01, not remediated vulnerabilities.
+
+Final local verification (all final commands exit 0): Ruff and Black across
+src/tests/scripts/docker; Mypy src; 71 focused security tests; 243 unit tests;
+21 integration tests; complete 264-test coverage suite at **87.50%** (75% floor);
+virtualenv pip check; both Compose profile renders; workflow YAML parse; exact
+reviewed Python audit (28 unique advisories across 2 packages); diff check.
+The first make audit attempt exited 2 because system python was absent; rerunning
+with the repository venv on PATH passed. CSV CRLF initially caused diff-check
+exit 2; LF normalization passed. Initial Ruff import/length errors were fixed.
+All earlier container failures and the invalid custom-rootfs security green are
+explicitly documented above and in the decision record.
+
+Local docker info exited 1: Colima is stopped. Local container builds/Trivy/Syft
+are NOT RUN; GitHub Actions provides authoritative evidence. Complete
+production-like MinIO/NGINX E2E is NOT RUN and remains upstream-blocked; no
+production-stack success is claimed. Runtime tests cover Linux amd64; arm64
+execution is not claimed. Stash remains
+`3384b5a200c73bd07a36dabb11f274280d72ca20`.
+
+Normal PR CI and post-merge master security evidence remain pending at this
+checkpoint. Phase 6 remains blocked until those last gates pass and is not started.

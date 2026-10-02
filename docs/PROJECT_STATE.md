@@ -1,7 +1,8 @@
 # Project state
 
 - **Current phase:** Phase 6 canonical real IEEE-CIS model evidence recorded;
-  mandatory production-like closure gate BLOCKED (MinIO image unavailable).
+  production-like E2E NOT VERIFIED; explicit external-infrastructure closure
+  exception authorized on 2026-10-02 (MinIO image unavailable).
   PHASE 5 SECURITY REMEDIATION VERIFIED. Monitoring + Security
   Slices 1–3 and the verified runtime redesign are complete; delayed-label
   monitoring remains deferred.
@@ -10,9 +11,8 @@
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next required action:** Explicitly authorize a Phase 6 completion exception for
-  the unavailable MinIO production-like gate, or separately authorize an
-  infrastructure change. No exception or object-store substitution was inferred.
+- **Next required action:** Complete PR #9 merge, verify fresh master CI/security
+  evidence, and publish the canonical release under the explicit MinIO exception.
 
 ## Canonical architecture
 
@@ -725,3 +725,29 @@ models, configuration, runtime or the risk baseline.
 Phase 6 is **BLOCKED on closure**: its specification requires production-like E2E
 and all required checks to pass. An infrastructure limitation must not silently
 become a completion waiver. No verified release tag or merge is claimed yet.
+
+## Phase 6 authorized closure exception — 2026-10-02
+
+The user explicitly authorized Phase 6 completion with this narrow external
+infrastructure exception. **Production-like E2E = NOT VERIFIED.** Reason:
+**unavailable legacy Community MinIO container distribution**; existing
+`minio/minio` repository/image is unavailable/access denied. Failed workflow
+`37009722147` remains failed evidence, not PASS. This is an external infrastructure
+limitation independent of the canonical model release. Local-lite real IEEE-CIS
+lifecycle is verified; canonical release evidence remains valid. No production
+readiness is claimed for the blocked full stack. MinIO, the production validator,
+canonical metrics, model, promotion, deployment, evaluation and security policy
+remain unchanged. No final-test selection or scoring was rerun.
+
+PR #9 head before this prose update was `47baa0374b3c531b1059cddd2e94565cab1a13c5`.
+Normal CI `37012769052` is SUCCESS (all three jobs). Security `37011457845` /
+artifact `11227802287` remains SUCCESS/unexpired; its actual artifact was downloaded
+and re-evaluated: 22 accepted residuals per image, zero policy issues, Wolfi 38/38
+OS coverage, SPDX 2.3 PASS, Gitleaks zero findings. No unresolved review threads.
+Safe release verification passed in normal and optimized Python modes (exit 0).
+Tracked-file inspection found only synthetic CSV fixtures and the reviewed public
+OS inventory; no restricted rows, model binaries, MLflow databases, credentials,
+private generated artifacts or absolute personal paths are tracked.
+Documentation-only verification uses diff checks and the safe offline release
+verifier; heavyweight runtime/model tests are not applicable to this prose change.
+Original stash remains `3384b5a200c73bd07a36dabb11f274280d72ca20`.

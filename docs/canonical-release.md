@@ -151,3 +151,17 @@ is separate from this real lifecycle. The production-like validator is
 `python scripts/validate_production_e2e.py`; record actual failures and teardown.
 The obsolete Community MinIO image remains an external infrastructure limitation;
 do not substitute a new product or label an unverified stack PASS.
+
+
+## Explicit Phase 6 completion exception — 2026-10-02
+
+**Production-like E2E = NOT VERIFIED.** Reason: **unavailable legacy Community
+MinIO container distribution**; existing `minio/minio` repository/image is
+unavailable/access denied. Workflow `37009722147` is preserved as failed
+evidence. This is an external infrastructure limitation. The user explicitly
+authorized Phase 6 closure with this limitation retained; the exception does
+not mark that workflow PASS or establish production readiness for the full stack.
+Local-lite real IEEE-CIS lifecycle is verified; canonical release evidence
+remains valid. No MinIO replacement, AIStor substitution, infrastructure redesign,
+validator weakening, model/evaluation change or final-test selection rerun is
+authorized by this exception.

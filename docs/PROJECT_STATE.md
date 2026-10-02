@@ -434,3 +434,13 @@ custom rootfs collector. Exact Python/native/certificate/timezone roots and
 artifact-derived Python constraints are pinned. Real compatibility/security
 validation remains pending. No vulnerable OS identity was accepted and no
 baseline semantics changed. Phase 6 remains blocked.
+
+Independent inspection rejected the custom-rootfs comparison run's apparent
+security success (36999526356, artifact 11223635441): Trivy detected no OS and
+scanned only Python, although Syft inventoried retained Debian libraries. No OS
+remediation success is claimed from that run. The evidence runner now requests
+all OS packages and reconciles Trivy coverage against Syft exact OS identities;
+unknown OS or missing inventory fails closed. All 68 focused security tests pass
+(exit 0), including six new coverage regressions. Wolfi real builds and initial
+runtime checks passed in run 37000028810; its full lifecycle/scans and final
+strengthened-policy rerun remain pending. Baseline risk identities are unchanged.

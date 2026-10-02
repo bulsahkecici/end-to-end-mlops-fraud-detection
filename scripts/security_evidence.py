@@ -333,6 +333,50 @@ def evaluate_report(
     }
 
 
+def validate_os_coverage(report: Any, sbom: Any) -> dict[str, Any]:
+    """Reject scanner blind spots and reconcile installed OS packages with Syft."""
+    metadata = report.get("Metadata", {}) if isinstance(report, dict) else {}
+    operating_system = metadata.get("OS", {})
+    if (
+        not isinstance(operating_system, dict)
+        or operating_system.get("Family") not in {"debian", "wolfi"}
+        or not _exact_string(operating_system.get("Name"))
+    ):
+        raise EvidenceError("Trivy did not recognize the expected Debian/Wolfi OS")
+    scanned = {
+        (package.get("Name"), package.get("Version"))
+        for result in report.get("Results", [])
+        if result.get("Class") == "os-pkgs"
+        for package in result.get("Packages", [])
+        if isinstance(package, dict)
+    }
+    inventory = {
+        (package["name"], package.get("versionInfo"))
+        for package in sbom["packages"]
+        if any(
+            reference.get("referenceType") == "purl"
+            and str(reference.get("referenceLocator", "")).startswith(("pkg:deb/", "pkg:apk/"))
+            for reference in package.get("externalRefs", [])
+            if isinstance(reference, dict)
+        )
+    }
+    if (
+        not scanned
+        or not inventory
+        or any(not _exact_string(name) or not _exact_string(version) for name, version in inventory)
+    ):
+        raise EvidenceError("Missing OS package inventory in Trivy or Syft")
+    missing = inventory - scanned
+    if missing:
+        raise EvidenceError(f"Trivy omitted Syft OS package identities: {sorted(missing)}")
+    return {
+        "status": "PASS",
+        "family": operating_system["Family"],
+        "trivy_package_count": len(scanned),
+        "syft_package_count": len(inventory),
+    }
+
+
 def _scan_image(
     target: ImageTarget, output_dir: Path, baseline: list[dict[str, Any]]
 ) -> tuple[dict[str, Any], bool, bool]:
@@ -374,6 +418,7 @@ def _scan_image(
             "--exit-code",
             str(TRIVY_FINDINGS_EXIT_CODE),
             "--no-progress",
+            "--list-all-pkgs",
             image_id,
         ]
     )
@@ -381,9 +426,8 @@ def _scan_image(
     trivy_error = trivy_result.returncode not in {0, TRIVY_FINDINGS_EXIT_CODE}
     if not trivy_error:
         try:
-            evaluation = evaluate_report(
-                _strict_json(trivy_path), target.name, baseline, image_id=image_id
-            )
+            trivy_payload = _strict_json(trivy_path)
+            evaluation = evaluate_report(trivy_payload, target.name, baseline, image_id=image_id)
             if bool(evaluation["finding_count"]) != trivy_findings:
                 raise EvidenceError("Trivy exit code disagrees with findings")
             record["baseline_evaluation"] = evaluation
@@ -418,6 +462,13 @@ def _scan_image(
         except EvidenceError:
             syft_error = True
     record["sbom"]["status"] = "FAIL" if syft_error else "PASS"
+    if not trivy_error and not syft_error:
+        try:
+            record["os_coverage"] = validate_os_coverage(trivy_payload, sbom)
+        except EvidenceError as exc:
+            record["os_coverage"] = {"status": "FAIL", "error": str(exc)}
+            record["trivy"]["status"] = "FAIL"
+            policy_failure = True
 
     print(
         f"Image {target.name}: Trivy={record['trivy']['status']}, "

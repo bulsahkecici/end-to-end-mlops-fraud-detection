@@ -120,3 +120,18 @@ cross-image serialization/pyfunc, live MLflow, and the non-root nine-step API
 lifecycle remain required. No compatibility or security count is inferred from
 the Wolfi name. D runtime evidence remains useful comparison data, not the final
 production strategy. Any newly unreviewed finding fails the unchanged policy.
+
+## Independent comparison artifact rejects the apparent D green
+
+Run 36999526356 / artifact 11223635441 passed runtime tests but its apparent
+security ACCEPTED is **invalid for an OS-remediation conclusion**: Trivy metadata
+says `OS.Family=none`, includes only Python results, while Syft finds retained
+libuuid1/ncurses packages. Actual sizes were 957,029,758 bytes API and
+935,217,269 bytes MLflow. This is a scanner-coverage defect, not zero OS risk.
+D is rejected. The final evidence runner now requests all packages, requires a
+recognized Debian/Wolfi OS and nonempty OS package result, and reconciles every
+Syft Debian/APK package name/version against Trivy's scanned OS inventory.
+Missing OS coverage or an omitted package fails closed. Six new regression cases
+cover undetected OS, missing OS result, missing/mismatched inventory and Wolfi
+identity support. The vulnerability baseline and acceptance identities are
+unchanged. Wolfi keeps native APK databases/OS identification without rewriting.

@@ -444,3 +444,15 @@ unknown OS or missing inventory fails closed. All 68 focused security tests pass
 (exit 0), including six new coverage regressions. Wolfi real builds and initial
 runtime checks passed in run 37000028810; its full lifecycle/scans and final
 strengthened-policy rerun remain pending. Baseline risk identities are unchanged.
+
+Wolfi run 37000028810 / artifact 11223930869 passed real final-container imports,
+cross-image API-created model loading, serialization/pyfunc prediction, native
+stdlib/certificates/timezone, both live MLflow server checks and nine-step
+non-root API lifecycle. Trivy recognized Wolfi and scanned 38 APK packages with
+zero OS findings. Each image had 26 Python findings: 22 reviewed, four new
+unreviewed in pip's private vendors, no stale entries. Latest pip 26.2.1 still
+contains those vendors. Final runtime now validates dependencies then uninstalls
+pip itself by its supported operation; no OS-owned package files are deleted.
+The no-installer runtime must pass all remote checks again. OS coverage matches
+full Debian epoch/release identities and APK versions. All 71 focused security
+tests pass. No new Python or OS finding is accepted. Phase 6 remains blocked.

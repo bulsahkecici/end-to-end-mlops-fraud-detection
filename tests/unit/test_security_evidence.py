@@ -430,7 +430,7 @@ def test_runtime_build_tool_policy():
         assert builder.index("pip uninstall -y setuptools wheel") > builder.index("pip install")
         assert "--only-binary=:all:" in builder
         assert "COPY --from=builder /opt/venv /opt/venv" in runtime
-        assert "RUN python -m pip check" in runtime
+        assert "RUN python -m pip check && python -m pip uninstall -y pip" in runtime
         assert "build-essential" not in contents
     assert "pyarrow==17.0.0" in (root / "requirements.txt").read_text()
 
@@ -527,3 +527,21 @@ def test_os_coverage_accepts_wolfi_with_exact_package_identity():
     sbom = _sbom()
     sbom["packages"][1]["externalRefs"][0]["referenceLocator"] = "pkg:apk/wolfi/libc6@2.41-12"
     assert security_evidence.validate_os_coverage(report, sbom)["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "package,expected",
+    [
+        (
+            {"Name": "libc6", "Version": "2.41", "Release": "12+deb13u4"},
+            ("libc6", "2.41-12+deb13u4"),
+        ),
+        (
+            {"Name": "bsdutils", "Version": "2.41.5", "Release": "0+deb13u1", "Epoch": 1},
+            ("bsdutils", "1:2.41.5-0+deb13u1"),
+        ),
+        ({"Name": "glibc", "Version": "2.43-r13"}, ("glibc", "2.43-r13")),
+    ],
+)
+def test_os_coverage_preserves_distro_release_and_epoch(package, expected):
+    assert security_evidence._os_package_identity(package) == expected

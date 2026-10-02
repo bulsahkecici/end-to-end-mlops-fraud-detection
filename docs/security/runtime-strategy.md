@@ -135,3 +135,31 @@ Missing OS coverage or an omitted package fails closed. Six new regression cases
 cover undetected OS, missing OS result, missing/mismatched inventory and Wolfi
 identity support. The vulnerability baseline and acceptance identities are
 unchanged. Wolfi keeps native APK databases/OS identification without rewriting.
+
+## Wolfi runtime passed; remove unnecessary installer findings
+
+Run 37000028810 / artifact 11223930869 passed both fresh builds, both-image
+native/certificate/timezone/pyfunc/cross-image tests, live MLflow and non-root
+nine-step API lifecycle. Trivy recognized Wolfi and scanned 38 APK packages,
+with zero OS findings. Per image it found 26 Python findings: 22 exact reviewed
+matches and four unreviewed findings, zero stale reviews. Those four originate
+from pip 26.2.1's vendor.txt: setuptools 70.3.0 (CVE-2025-47273), msgpack 1.1.2
+(GHSA-6v7p-g79w-8964), urllib3 2.7.0 (CVE-2026-97687, CVE-2026-97689).
+Installed application urllib3 is already 2.8.0; upgrading that distribution
+does not patch pip's private copies. Independently downloaded latest upstream
+pip 26.2.1 confirms those exact vendor pins. No new finding is baselined.
+
+The final runtime validates dependencies with pip check before uninstalling pip
+itself using its supported uninstall operation. No runtime installer is required
+for existing in-process model loading or MLflow/Gunicorn service startup. The
+matched builder retains pip and performs the same checks before copying the
+venv. Final smoke asserts pip/setuptools/wheel distributions are absent, then
+repeats serialization/load/live server/API tests without them. pip check is
+not applicable after installer removal; its successful final-layer execution
+before removal is build evidence. OS-owned ensurepip/wheel files and native APK
+databases are not deleted or rewritten. Actual fresh scans must establish that
+this removes the active vendor findings without losing OS coverage.
+
+OS identity reconciliation accounts for Trivy's separate Debian Epoch/Release
+fields; a raw Version-only comparison would incorrectly reject valid evidence.
+Explicit regressions cover full Debian and APK versions.

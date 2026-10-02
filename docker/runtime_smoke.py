@@ -18,7 +18,6 @@ def main():
     sys.path.insert(0, "/app")
     assert sys.version_info[:2] == (3, 11)
     assert metadata.version("mlflow") == "2.22.5"
-    subprocess.run([sys.executable, "-m", "pip", "check"], check=True)
     for name in [
         "mlflow",
         "pyarrow",
@@ -46,7 +45,7 @@ def main():
     curses.setupterm(term="xterm")
     assert uuid.uuid4().version == 4
     assert uuid.uuid1().version == 1
-    for name in ["setuptools", "wheel"]:
+    for name in ["setuptools", "wheel", "pip"]:
         try:
             metadata.version(name)
         except metadata.PackageNotFoundError:

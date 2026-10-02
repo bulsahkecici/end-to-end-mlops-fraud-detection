@@ -12,5 +12,5 @@ FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db25590
 RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
 COPY --from=builder /opt/venv /opt/venv
 ENV PATH=/opt/venv/bin:$PATH LANG=C.UTF-8 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN python -m pip check
+RUN python -m pip check && python -m pip uninstall -y pip
 CMD ["python"]

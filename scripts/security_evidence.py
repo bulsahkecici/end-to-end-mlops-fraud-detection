@@ -333,6 +333,20 @@ def evaluate_report(
     }
 
 
+def _os_package_identity(package: dict[str, Any]) -> tuple[str, str]:
+    name, version = package.get("Name"), package.get("Version")
+    release, epoch = package.get("Release", ""), package.get("Epoch", 0)
+    if (
+        not _exact_string(name)
+        or not _exact_string(version)
+        or not isinstance(release, str)
+        or type(epoch) is not int
+        or epoch < 0
+    ):
+        raise EvidenceError("Malformed Trivy OS package identity")
+    return name, (f"{epoch}:" if epoch else "") + version + (f"-{release}" if release else "")
+
+
 def validate_os_coverage(report: Any, sbom: Any) -> dict[str, Any]:
     """Reject scanner blind spots and reconcile installed OS packages with Syft."""
     metadata = report.get("Metadata", {}) if isinstance(report, dict) else {}
@@ -344,7 +358,7 @@ def validate_os_coverage(report: Any, sbom: Any) -> dict[str, Any]:
     ):
         raise EvidenceError("Trivy did not recognize the expected Debian/Wolfi OS")
     scanned = {
-        (package.get("Name"), package.get("Version"))
+        _os_package_identity(package)
         for result in report.get("Results", [])
         if result.get("Class") == "os-pkgs"
         for package in result.get("Packages", [])

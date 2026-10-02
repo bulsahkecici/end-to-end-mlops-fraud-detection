@@ -1,0 +1,14 @@
+# Keep every default rule. This is an artifact SHA-256, independently verified
+# against run 36988628850 / artifact 11218502716, not an API credential.
+[extend]
+useDefault = true
+
+[[rules]]
+id = "generic-api-key"
+
+[[rules.allowlists]]
+description = "Verified original API Trivy report SHA-256 in baseline provenance"
+condition = "AND"
+regexTarget = "secret"
+paths = ['''^security/container_vulnerability_baseline\.json$''']
+regexes = ['''^14fbd5ef31b32f7f9bdafed1a9b446fa65319c41d79553167c51bf903a9ad5f9$''']

@@ -287,3 +287,24 @@ model lifecycle changes are included. The original stash object remains
 
 Final complete-suite coverage verification: exit 0, **255 passed**, **87.50%**
 coverage (75% minimum). Final unit rerun: exit 0, **234 passed**.
+
+## First remote remediation checkpoint — 2026-10-02
+
+PR #6 merged `fc7f09f7ec0c98af48a097cb1ba65f737b7f56f9` as
+`d834583dafe83fd69ea2461efc13366d3a5913ef` after normal CI run `36993627670`
+passed all three jobs (lint/type/tests/coverage, Docker, isolated synthetic E2E).
+Manual master security run `36994909880` failed on one Gitleaks false positive;
+artifact `11221143031` was downloaded and inspected. It identifies the original
+API Trivy report's verified SHA-256 on baseline line 492, not a credential.
+Build/runtime/Trivy/SBOM steps were skipped, and artifact upload passed.
+
+A focused `.gitleaks.toml` extension retains every default rule and excludes
+only that exact digest AND the exact baseline path under `generic-api-key`.
+It excludes no commits, entire paths, or other values. Checksum-verified local
+Gitleaks 8.30.1 full reachable history: PASS, zero findings. Temporary Git
+positive controls: original digest/path excluded; changed digest detected;
+same digest at another path detected, all expected exit codes observed.
+An initial directory-mode control returned a finding because it uses absolute
+paths; controls were rerun in temporary Git repositories matching the workflow.
+`git diff --check`: PASS. Only scanner configuration and this evidence note
+changed; prior code verification remains applicable. Phase 6 remains blocked.

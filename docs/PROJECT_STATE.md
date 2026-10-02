@@ -1,7 +1,9 @@
 # Project state
 
-- **Current phase:** PHASE 5 SECURITY REMEDIATION VERIFIED. Phase 6 may start
-  on explicit instruction; no Phase 6 work has started. Monitoring + Security
+- **Current phase:** Phase 6 canonical real IEEE-CIS model evidence recorded;
+  production-like E2E NOT VERIFIED; explicit external-infrastructure closure
+  exception authorized on 2026-10-02 (MinIO image unavailable).
+  PHASE 5 SECURITY REMEDIATION VERIFIED. Monitoring + Security
   Slices 1–3 and the verified runtime redesign are complete; delayed-label
   monitoring remains deferred.
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
@@ -9,8 +11,8 @@
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next authorized work:** Await explicit Phase 6 instructions. The security
-  gate is clear; the independent MinIO production-stack blocker remains recorded.
+- **Next required action:** Complete PR #9 merge, verify fresh master CI/security
+  evidence, and publish the canonical release under the explicit MinIO exception.
 
 ## Canonical architecture
 
@@ -30,7 +32,7 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
 
 ## Known limitations
 
-- The ordinal/drop and uncalibrated baseline remains the default because no real IEEE-CIS benchmark is available in the repository. Frequency encoding and sigmoid/isotonic calibration are implemented experiment variants but are not selected based on synthetic results.
+- The ordinal/drop and uncalibrated baseline remains the preregistered Phase 6 configuration. Frequency encoding and sigmoid/isotonic calibration are implemented variants but were not selected using synthetic results or the canonical final test.
 - Drift monitoring is deterministic and reference-authoritative, with fixed
   reference-derived numeric bins, bounded categorical buckets, explicit
   prediction-output handling, provenance/fingerprints, and machine-readable
@@ -52,7 +54,7 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
   implementation defect; the blocker is not expected to resolve automatically.
 - API and MLflow bases, OS package versions and Python dependency constraints
   are pinned. Other Compose service references retain their existing tags.
-- Synthetic runs validate plumbing only; no canonical real IEEE-CIS release metrics are recorded.
+- Synthetic runs validate plumbing only. Real canonical IEEE-CIS v1 reporting evidence is now recorded separately in `releases/ieee-cis-v1/`.
 - MLflow 2.22.5 remains pinned. The 2026-10-01 `pip-audit` result contains 54
   raw findings (28 unique advisory IDs) across runtime-reachable MLflow and
   PyArrow; all listed MLflow fixes require 3.x, several much later 3.x releases
@@ -585,3 +587,167 @@ No Phase 6 work started. Original stash remains
 
 **PHASE 5 SECURITY REMEDIATION VERIFIED.**
 **PHASE 6 MAY START.**
+
+
+## Phase 6 canonical model evidence — 2026-10-02
+
+Authorized branch `release/phase-6-canonical-ieee` began at verified master
+`825967251d19b97d6650fae4f3c889f032ea98f7`. The original stash remains
+`3384b5a200c73bd07a36dabb11f274280d72ca20` and was never applied or mutated.
+All four real Kaggle files were already present in ignored storage. No dataset
+substitute, model/configuration search, object-store replacement or runtime/risk
+baseline change was performed.
+
+**REAL IEEE-CIS EVIDENCE:** release `ieee-cis-v1`, full 590,540 labelled source
+transactions; train identity 144,233 rows. Unlabelled competition test transaction
+506,691 / identity 141,907 rows were audited, not used for model scoring. Each
+file has unique TransactionID, correct target placement, nonnegative/nonmissing
+transaction times, orphan-free identity joins, ordered schema and missingness
+metadata. Exact hashes live in the safe dataset manifest. Dataset fingerprint:
+`a01f77eaa792c8346a876102fa3c717f7361ccd4e14fe1a57735b86816c7ab75`.
+
+Canonical configuration SHA-256:
+`d9983ad820d40bdbf72590690930b02967eb8ad2add7e4b4c7d7bdd1c6beda15`.
+Preregistration commit `81cfdea4ccf98305e7e1aa5a6105c8cddd10996d` precedes training
+and final reporting. Preserved ordinal/drop, no calibration, default LightGBM
+parameters, seed 42, selection-only best_f1 threshold, FN=25/FP=1 reporting costs.
+Stable temporal partitions: train 413,378; early-stopping/calibration-fit 22,145;
+selection 22,145; promotion 44,291; final reporting 88,581. Exact nonoverlapping
+time boundaries/full-row fingerprints are in `split_manifest.json`.
+
+Training run `a7d516e70f714caeb67f35bd2c30762f` from clean preregistration source;
+registered/candidate version `1`, first legitimate champion version `1` in the
+isolated SQLite/local-artifact registry. Promotion passed loadability, signature,
+smoke probability, frozen artifact integrity/row identity, absolute gates and
+candidate alias stability. Promotion PR-AUC 0.5132486707022708 and recall
+0.48171152518978605 are gate evidence, not final metrics. No existing champion
+was present, so the regression comparison was explicitly not applicable; no
+synthetic-versus-real comparison was fabricated.
+
+Explicit deployment `20261002T125321465784Z-4cf8f6d7fe324477b6f25ae0bfa4e886`
+records version `1`, the same run, and source
+`cf83cf008d2332f263611dcb752d63f6c96d48a8`. Append-only history equals current
+state and its checksum is recorded. Deployment git_dirty=true reflects creation
+of the safe untracked output manifest before the command; executable source was
+committed. Direct local-lite API served `models:/ieee_fraud_lgbm/1`; health,
+readiness run/version, single/batch predictions, exact fitted-pipeline parity,
+stored threshold and malformed-request 422 checks passed. The first evidence
+check expected a URI in model_source; the existing field returns `version:1`.
+The validator was corrected without changing the service contract. Requests used
+handmade unrestricted values; no raw IEEE fixture was saved.
+
+Pre-final review/deployment freeze commit
+`c54bf3380df626026d6921be93f9667bbb2f1374` precedes one successful invocation of
+`src.modeling.final_test` on immutable `models:/ieee_fraud_lgbm/1`. No failed
+final invocation, configuration revision or second final scoring occurred. Final
+row fingerprint:
+`da1f461c4513777e09e8818f3402df1e4a4833e3986e68db26a68ef6deb4ffb4`.
+
+| Real final-report metric | Exact value |
+|---|---:|
+| Rows | 88581 |
+| PR-AUC | 0.5229777963628136 |
+| ROC-AUC | 0.8956263566933376 |
+| Precision | 0.4429896344789962 |
+| Recall | 0.5267596496918586 |
+| F1 | 0.4812564824418432 |
+| Log loss | 0.09384780195084294 |
+| Brier score | 0.02256234669894403 |
+| Threshold | 0.1508937436017237 |
+| Fraud rate | 0.03480430340592226 |
+| Expected illustrative cost | 38517.0 |
+| Cost per sample | 0.434822365970129 |
+
+Confusion counts TN=83456, FP=2042, FN=1459, TP=1624. The final holdout never
+fit preprocessing, model, early stopping, calibration, threshold or promotion.
+The source-to-served-model-to-final-report chain passes the safe release verifier,
+including optimized Python mode. Raw source files, Parquet, input examples, model
+binaries, SQLite and artifact stores are ignored and unpublished.
+
+Model card, architecture, recruiter-first README and reproduction guide now
+reflect this evidence and separate **SYNTHETIC SMOKE / PLUMBING EVIDENCE**.
+The local training runtime is macOS arm64 Python 3.11.15; final Linux amd64
+container compatibility remains independently tested with synthetic artifacts.
+The canonical private binary was not tested inside a container and is not
+redistributed. Live performance, fairness, cloud SLA, delayed-label monitoring
+and a complete MinIO-backed production stack are not claimed.
+
+Final local verification: 10 release-focused regressions PASS, unit 253 PASS,
+integration 21 PASS, full suite 274 PASS, coverage suite 274 PASS at 87.77%
+(75% floor).
+Ruff, Black check, Mypy, pip check, both Compose renders, safe release verification
+and diff check PASS. Initial sandbox dependency audit failed closed (no valid
+JSON); authorized network retry PASS matching 28 advisories across two packages.
+Local production validator exit 1 because Colima is stopped; no services/volumes
+started, diagnostic/teardown commands also could not connect. Remote explicit
+production workflow `37009722147` completed FAIL: aligned image builds PASS,
+lint/test/coverage job PASS and synthetic E2E job PASS, but mandatory production
+startup could not pull `minio/minio` (repository unavailable/access denied).
+Project `phase4e2e-c42d2eb9` had no created services; diagnostics and isolated
+`down -v --remove-orphans` completed. No complete production-like PASS is claimed.
+
+Security workflow `37010476773`, source
+`c54bf3380df626026d6921be93f9667bbb2f1374`, artifact `11227139997` SUCCESS. The
+actual artifact was downloaded and independently re-evaluated with the unchanged
+exact policy: each image 22 findings, 14 HIGH / 8 CRITICAL, 22 reviewed matches,
+zero issues/unaccepted/stale/newly-fixable changes; Wolfi 38/38 Trivy/Syft OS
+coverage PASS, SPDX SBOMs PASS, zero Gitleaks findings, runtime imports,
+cross-image serialization/live MLflow and synthetic immutable API lifecycle PASS.
+The canonical private binary was not container-tested.
+
+Final implementation source `0cbc92419b55e69d0ee64a197c562a62b64242bb` passed
+all three normal PR CI jobs in `37011458910`: 253 unit / 21 integration /
+274 coverage tests at 87.77%, aligned API image build, and 9/9 synthetic
+lifecycle/API steps. Its fresh security run `37011457845`, artifact
+`11227802287`, also SUCCESS; downloaded reports were independently re-evaluated
+with exactly the same 22 reviewed findings / 14 HIGH / 8 CRITICAL, zero
+unaccepted/stale/changed-fix findings, 38/38 OS coverage, SPDX PASS, zero
+Gitleaks findings and complete runtime/server/synthetic API PASS. No risk
+baseline or image/source implementation changed in this final evidence follow-up.
+
+A final local inspection reconciled candidate/champion/deployed version 1 and
+the run, plus all 48 private model artifact hashes. Its first ad hoc check
+compared MLflow integer version 1 with string "1"; normalization corrected the
+check without changing aliases or model state. The 1,827,518-byte fitted
+pipeline SHA-256 is
+`4900d5c0746e72ded345ddf5f58fc8aef59af4b4b81f905cbd125c56c46008c5`.
+Only safe hashes are published. Temporary API was stopped after verification;
+the private isolated model/store/deployment remain available.
+
+PR #9 is open for review with the real evidence and exact blocker. No unresolved
+review threads existed at inspection. All modeled/serving results remain valid;
+no final-test rerun occurred. Master remains
+`825967251d19b97d6650fae4f3c889f032ea98f7`. Merge, release tag and post-merge
+master workflows are NOT RUN because the mandatory production-like gate fails.
+The final follow-up changes only safe evidence/documentation, not Python source,
+models, configuration, runtime or the risk baseline.
+
+Phase 6 is **BLOCKED on closure**: its specification requires production-like E2E
+and all required checks to pass. An infrastructure limitation must not silently
+become a completion waiver. No verified release tag or merge is claimed yet.
+
+## Phase 6 authorized closure exception — 2026-10-02
+
+The user explicitly authorized Phase 6 completion with this narrow external
+infrastructure exception. **Production-like E2E = NOT VERIFIED.** Reason:
+**unavailable legacy Community MinIO container distribution**; existing
+`minio/minio` repository/image is unavailable/access denied. Failed workflow
+`37009722147` remains failed evidence, not PASS. This is an external infrastructure
+limitation independent of the canonical model release. Local-lite real IEEE-CIS
+lifecycle is verified; canonical release evidence remains valid. No production
+readiness is claimed for the blocked full stack. MinIO, the production validator,
+canonical metrics, model, promotion, deployment, evaluation and security policy
+remain unchanged. No final-test selection or scoring was rerun.
+
+PR #9 head before this prose update was `47baa0374b3c531b1059cddd2e94565cab1a13c5`.
+Normal CI `37012769052` is SUCCESS (all three jobs). Security `37011457845` /
+artifact `11227802287` remains SUCCESS/unexpired; its actual artifact was downloaded
+and re-evaluated: 22 accepted residuals per image, zero policy issues, Wolfi 38/38
+OS coverage, SPDX 2.3 PASS, Gitleaks zero findings. No unresolved review threads.
+Safe release verification passed in normal and optimized Python modes (exit 0).
+Tracked-file inspection found only synthetic CSV fixtures and the reviewed public
+OS inventory; no restricted rows, model binaries, MLflow databases, credentials,
+private generated artifacts or absolute personal paths are tracked.
+Documentation-only verification uses diff checks and the safe offline release
+verifier; heavyweight runtime/model tests are not applicable to this prose change.
+Original stash remains `3384b5a200c73bd07a36dabb11f274280d72ca20`.

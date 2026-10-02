@@ -1,0 +1,23 @@
+{
+  "approved_reporting_only": true,
+  "checks": {
+    "calibration_none": true,
+    "configuration_committed_before_training": true,
+    "default_variant_chosen_before_final": true,
+    "early_stopping_calibration_fit_only": true,
+    "final_test_never_scored": true,
+    "immutable_version_deployed": true,
+    "preprocessing_train_only": true,
+    "promotion_distinct_frozen_rows": true,
+    "serving_verified": true,
+    "source_hashes_and_split_hashes_stable": true,
+    "threshold_selection_only": true
+  },
+  "deployment_git_dirty_explanation": "Only the safe deployment_manifest.json output was untracked when deployment recorded Git context; executable source matches deployment commit.",
+  "final_test_execution_count_before_review": 0,
+  "model_uri": "models:/ieee_fraud_lgbm/1",
+  "preregistration_commit": "81cfdea4ccf98305e7e1aa5a6105c8cddd10996d",
+  "release_id": "ieee-cis-v1",
+  "review_method": "Independent second-pass source and manifest review before final scoring",
+  "run_id": "a7d516e70f714caeb67f35bd2c30762f"
+}

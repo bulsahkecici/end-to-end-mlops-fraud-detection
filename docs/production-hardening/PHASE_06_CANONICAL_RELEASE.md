@@ -36,3 +36,17 @@ Produce a traceable canonical release based on the real IEEE-CIS dataset and pub
 - A reproducible real-data run has traceable metrics and artifacts tied to a canonical model version and commit.
 - Model card, architecture, and README clearly separate real IEEE-CIS evidence from synthetic smoke results.
 - All required checks pass and `docs/PROJECT_STATE.md` records the canonical release state.
+
+
+## Explicit Phase 6 completion exception — 2026-10-02
+
+**Production-like E2E = NOT VERIFIED.** Reason: **unavailable legacy Community
+MinIO container distribution**; existing `minio/minio` repository/image is
+unavailable/access denied. Workflow `37009722147` is preserved as failed
+evidence. This is an external infrastructure limitation. The user explicitly
+authorized Phase 6 closure with this limitation retained; the exception does
+not mark that workflow PASS or establish production readiness for the full stack.
+Local-lite real IEEE-CIS lifecycle is verified; canonical release evidence
+remains valid. No MinIO replacement, AIStor substitution, infrastructure redesign,
+validator weakening, model/evaluation change or final-test selection rerun is
+authorized by this exception.

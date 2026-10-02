@@ -1,0 +1,37 @@
+{
+  "calibration_fit": {
+    "dt_max": 11027920,
+    "dt_min": 10438003,
+    "fingerprint": "9d4a594a02b6cb656d49ab5aac85a7681173e948763c1a529f4a663a8097a512",
+    "fingerprint_algorithm": "sha256-canonical-json-v1",
+    "rows": 22145
+  },
+  "final_test": {
+    "dt_max": 15811131,
+    "dt_min": 13151880,
+    "fingerprint": "da1f461c4513777e09e8818f3402df1e4a4833e3986e68db26a68ef6deb4ffb4",
+    "fingerprint_algorithm": "sha256-canonical-json-v1",
+    "rows": 88581
+  },
+  "promotion_evaluation": {
+    "dt_max": 13151840,
+    "dt_min": 11725712,
+    "fingerprint": "2796f0b3e2f8862c6168fb58ce3a5a25fddde440cab73db6b92d1beb73d27a76",
+    "fingerprint_algorithm": "sha256-canonical-json-v1",
+    "rows": 44291
+  },
+  "selection_validation": {
+    "dt_max": 11725688,
+    "dt_min": 11027943,
+    "fingerprint": "991b3144d0da751140ee27d7929029fd72244fd27cbb90f39c6e0c97902900e8",
+    "fingerprint_algorithm": "sha256-canonical-json-v1",
+    "rows": 22145
+  },
+  "train": {
+    "dt_max": 10437996,
+    "dt_min": 86400,
+    "fingerprint": "fde060ef88e251057b7633ae70204e4a8e27d2a6422b0df870e06c6e2168e477",
+    "fingerprint_algorithm": "sha256-canonical-json-v1",
+    "rows": 413378
+  }
+}

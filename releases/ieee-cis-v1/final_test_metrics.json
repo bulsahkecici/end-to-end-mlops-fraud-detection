@@ -1,0 +1,46 @@
+{
+  "purpose": "final_test_release_report",
+  "model_uri": "models:/ieee_fraud_lgbm/1",
+  "experiment_variant_id": "ieee-cis-v1-ordinal-none",
+  "evidence_label": "real_ieee_cis_final_test",
+  "must_not_be_used_for_model_selection_or_promotion": true,
+  "final_test_identity": {
+    "dataset_id": "ieee:temporal:final-test",
+    "dataset_version": "da1f461c4513777e09e8818f3402df1e4a4833e3986e68db26a68ef6deb4ffb4",
+    "fingerprint": "da1f461c4513777e09e8818f3402df1e4a4833e3986e68db26a68ef6deb4ffb4",
+    "fingerprint_algorithm": "sha256-canonical-json-v1",
+    "row_count": 88581,
+    "summary": {
+      "name": "test",
+      "n_rows": 88581,
+      "dt_min": 13151880.0,
+      "dt_max": 15811131.0,
+      "n_fraud": 3083,
+      "fraud_rate": 0.03480430340592226
+    },
+    "source_data_fingerprint": {
+      "train_transaction.csv": "3a5c83ab6b3cc13dcabe5ffa9f522307fd5f7f7b6e6f6a60c32284ca6283d642",
+      "train_identity.csv": "b63c725d8377be90a995268d97f347c17d456b95db45807adcf9f59cd603c37c"
+    }
+  },
+  "metrics": {
+    "roc_auc": 0.8956263566933376,
+    "pr_auc": 0.5229777963628136,
+    "precision": 0.4429896344789962,
+    "recall": 0.5267596496918586,
+    "f1": 0.4812564824418432,
+    "log_loss": 0.09384780195084294,
+    "brier_score": 0.02256234669894403,
+    "fraud_rate": 0.03480430340592226,
+    "threshold": 0.1508937436017237,
+    "n_samples": 88581,
+    "confusion_matrix": {
+      "tn": 83456,
+      "fp": 2042,
+      "fn": 1459,
+      "tp": 1624
+    },
+    "expected_cost": 38517.0,
+    "expected_cost_per_sample": 0.434822365970129
+  }
+}

@@ -1,0 +1,99 @@
+{
+  "final_registry_artifact_inspection": {
+    "candidate_version": "1",
+    "champion_version": "1",
+    "deployed_version": "1",
+    "first_inspection_error": "Compared integer registry version to string; normalized as repository lifecycle does; reinspection passed without registry mutation",
+    "private_model_artifacts_checked": 48,
+    "status": "PASS"
+  },
+  "local_checks": {
+    "black_check": {
+      "exit_code": 0,
+      "scope": "src tests scripts"
+    },
+    "compose_local_lite": {
+      "exit_code": 0
+    },
+    "compose_production_like": {
+      "exit_code": 0
+    },
+    "coverage": {
+      "exit_code": 0,
+      "passed": 274,
+      "percent": 87.77,
+      "required_percent": 75
+    },
+    "dependency_audit": {
+      "initial_exit_code": 2,
+      "network_retry_exit_code": 0,
+      "packages": 2,
+      "reviewed_advisories": 28
+    },
+    "full_suite": {
+      "exit_code": 0,
+      "passed": 274
+    },
+    "git_diff_check": {
+      "exit_code": 0
+    },
+    "integration": {
+      "exit_code": 0,
+      "passed": 21
+    },
+    "mypy": {
+      "exit_code": 0,
+      "scope": "src"
+    },
+    "pip_check": {
+      "exit_code": 0
+    },
+    "release_focused": {
+      "exit_code": 0,
+      "passed": 10
+    },
+    "release_traceability": {
+      "exit_code": 0,
+      "optimized_python_mode_exit_code": 0
+    },
+    "ruff": {
+      "exit_code": 0,
+      "scope": "src tests scripts"
+    },
+    "unit": {
+      "exit_code": 0,
+      "passed": 253
+    }
+  },
+  "normal_ci": {
+    "coverage_percent": 87.77,
+    "coverage_suite_passed": 274,
+    "integration_passed": 21,
+    "jobs": [
+      "lint-type-test",
+      "docker",
+      "e2e-smoke"
+    ],
+    "source_commit": "0cbc92419b55e69d0ee64a197c562a62b64242bb",
+    "status": "PASS",
+    "synthetic_lifecycle_steps_passed": 9,
+    "unit_passed": 253,
+    "workflow_run_id": 37011458910
+  },
+  "phase_completion": "BLOCKED: mandatory production-like E2E cannot pass; no specification waiver assumed",
+  "post_merge_checks": "NOT RUN: not merged while mandatory workflow fails",
+  "production_like": {
+    "aligned_image_builds": "PASS",
+    "diagnostics": "compose ps --all reported no services",
+    "error": "pull access denied for minio/minio, repository does not exist or may require 'docker login': denied: requested access to the resource is denied",
+    "exit_code": 1,
+    "failed_step": "Production-like deploy, serve, and rollback smoke (manual opt-in)",
+    "independent_lint_test_and_synthetic_lifecycle_jobs": "PASS",
+    "isolated_project": "phase4e2e-c42d2eb9",
+    "source_commit": "c54bf3380df626026d6921be93f9667bbb2f1374",
+    "status": "BLOCKED",
+    "teardown": "compose down -v --remove-orphans completed; no services were created",
+    "workflow_run_id": 37009722147
+  },
+  "real_local_lite_lifecycle": "PASS: full IEEE training, candidate, promotion, explicit deployment, API, final report"
+}

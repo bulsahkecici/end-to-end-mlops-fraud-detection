@@ -1,0 +1,51 @@
+{
+  "batch_prediction": {
+    "model_name": "ieee_fraud_lgbm",
+    "model_version": "1",
+    "predictions": [
+      {
+        "fraud_prediction": 0,
+        "fraud_probability": 0.015854226286035725,
+        "threshold": 0.1508937436017237
+      },
+      {
+        "fraud_prediction": 0,
+        "fraud_probability": 0.06332736160482018,
+        "threshold": 0.1508937436017237
+      }
+    ]
+  },
+  "checks": {
+    "batch_prediction": true,
+    "health": true,
+    "immutable_readiness": true,
+    "malformed_requests_422": true,
+    "pipeline_parity": true,
+    "single_prediction": true,
+    "stored_threshold": true
+  },
+  "fixture_provenance": "handmade unrestricted values; no IEEE rows exported",
+  "health": {
+    "status": "ok"
+  },
+  "ready": {
+    "deployed_at": "2026-10-02T12:53:21.465951+00:00",
+    "model_name": "ieee_fraud_lgbm",
+    "model_source": "version:1",
+    "model_version": "1",
+    "run_id": "a7d516e70f714caeb67f35bd2c30762f",
+    "status": "ready"
+  },
+  "single_prediction": {
+    "model_name": "ieee_fraud_lgbm",
+    "model_version": "1",
+    "predictions": [
+      {
+        "fraud_prediction": 0,
+        "fraud_probability": 0.015854226286035725,
+        "threshold": 0.1508937436017237
+      }
+    ]
+  },
+  "threshold": 0.1508937436017237
+}

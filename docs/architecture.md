@@ -1,110 +1,76 @@
 # Architecture
 
-## Pipeline overview
-
-```
-IEEE-CIS CSVs (or synthetic data)
-        │
-        ▼
-src/data/ingest.py + sampling.py + validation.py
-  - deterministic, time-span-preserving sampling (not head-of-file)
-  - structural validation (required columns, binary target, no dup ids)
-        │
-        ▼
-src/modeling/validation.py: temporal split (train/val/test)
-        │
-        ▼
-src/features/pipeline.py: infer_schema(X_train)  <- schema decided on TRAIN ONLY
-        │
-        ▼
-ColumnAligner.fit(X_train)          <- records expected columns
-preprocessor.fit_transform(X_train) <- imputer/encoder fit on TRAIN ONLY
-LGBMClassifier.fit(..., eval_set=[X_val])  <- early stopping on VAL
-        │
-        ▼
-Pipeline(aligner, preprocessor, classifier)  <- one fitted object
-        │
-        ▼
-src/modeling/threshold.py: select_threshold() on VAL predictions
-src/modeling/evaluate.py: compute_metrics() on VAL and TEST
-        │
-        ▼
-src/modeling/mlflow_wrapper.py: FraudModelWrapper (pyfunc)
-  wraps the fitted Pipeline + threshold + metadata
-        │
-        ▼
-mlflow.pyfunc.log_model(...)  <- ONE artifact, signature + input_example
-mlflow registered version, alias = "candidate"
-        │
-        ▼
-src/registry/promote.py  <- gate: loadable, signature present, smoke
-                             predict valid, PR-AUC/recall thresholds,
-                             not a regression vs "champion"
-        │  (all checks pass)
-        ▼
-alias = "champion"
-        │
-        ▼
-src/api/app.py (FastAPI)
-  loads models:/<name>@champion (falls back to legacy "Production" stage)
-  at startup; POST /predict calls the SAME fitted Pipeline used at
-  training time — no separate preprocessing code path exists.
+```mermaid
+flowchart TD
+  IEEE[Permitted IEEE-CIS CSV files] --> Audit[Structural validation and source hashes]
+  Audit --> Ingest[Full input or deterministic time-span sampling]
+  Ingest --> Split[Stable temporal partitions]
+  Split --> Train[Train: schema and fitted preprocessing]
+  Train --> LGBM[LightGBM]
+  Split --> Early[Calibration-fit: early stopping]
+  Early --> LGBM
+  LGBM --> Cal[Optional fitted calibration; canonical release uses none]
+  Split --> Select[Selection validation]
+  Cal --> Threshold[Selection-only threshold]
+  Select --> Threshold
+  Threshold --> Pyfunc[One shared fitted sklearn pipeline in MLflow pyfunc]
+  Pyfunc --> Candidate[Immutable version and candidate alias]
+  Split --> Frozen[Frozen promotion-only rows and manifest]
+  Frozen --> Gate[Independent candidate/champion rescoring and integrity gates]
+  Candidate --> Gate
+  Gate --> Champion[Approved champion alias]
+  Champion --> Deploy[Explicit deployment event and append-only history]
+  Deploy --> API[API loads immutable version at startup]
+  API --> NGINX[Optional NGINX proxy]
+  API --> Monitor[Prometheus metrics and offline supplied-file drift]
+  Split --> Final[Reserved final-test rows]
+  Deploy --> Report[Explicit immutable final-test report]
+  Final --> Report
+  Report --> Release[Safe canonical release manifests]
 ```
 
-## Why one shared `Pipeline`
+## Data and evaluation
 
-The project's original bug was that training encoded categorical features
-as native pandas `category` dtype (consumed by LightGBM directly) while the
-serving code re-implemented a hand-written category→integer mapping. The
-two were never guaranteed to agree.
+`src/data/ingest.py`, `sampling.py` and `validation.py` load and structurally validate transactions, then left-join unique identity records. Full-data canonical execution sets `SAMPLE_ROWS=0`; quickstart sampling is a separate deterministic, time-span-preserving mode. Competition test CSVs lack targets and are distinct from the final temporal holdout of labelled training data.
 
-The fix is structural, not a patch: `src/features/pipeline.py` defines
-- `ColumnAligner` — a custom sklearn `TransformerMixin` that reindexes any
-  incoming dataframe onto the exact fit-time column set, coercing numeric
-  columns via `pd.to_numeric(errors="coerce")` and categorical columns to
-  `object` dtype. This is what makes missing/extra/reordered/loosely-typed
-  request columns non-fatal.
-- a `ColumnTransformer` (median imputation for numeric, most-frequent
-  imputation + `OrdinalEncoder(handle_unknown="use_encoded_value")` for
-  categorical)
-- the `LGBMClassifier`
+`src/modeling/validation.py` reserves the latest 15% for final reporting. The earliest 70% fits schema/preprocessing/model. The middle 15% becomes 3.75% early-stopping/calibration-fit, 3.75% threshold/variant selection, and 7.5% promotion evaluation (rounded row counts). Split helpers preserve stable temporal order. Canonical exact counts/boundaries/hashes are published in [release evidence](../releases/ieee-cis-v1/split_manifest.json).
 
-all three are steps in **one** `sklearn.Pipeline`. That pipeline is pickled
-once (`joblib.dump`) and logged as a single MLflow artifact. The FastAPI
-service loads that exact object — there is no second implementation of
-"how do I turn a raw record into model input" anywhere in the codebase.
+## Shared fitted pipeline
 
-## Why a custom pyfunc wrapper
+Train-only `infer_schema`, `ColumnAligner.fit`, imputation and encoding produce one fitted sklearn pipeline. Its classifier step contains either LightGBM or the serialized optional probability calibrator. Canonical IEEE-CIS v1 preserves ordinal/drop encoding and no calibration. The pyfunc wrapper computes probability and binary decision using the stored selection threshold.
 
-`mlflow.sklearn`'s default pyfunc flavor calls `.predict()` on the
-underlying estimator, which for a classifier returns a hard 0/1 label, not
-a probability. `src/modeling/mlflow_wrapper.py::FraudModelWrapper` is a
-`mlflow.pyfunc.PythonModel` that calls `.predict_proba()` internally and
-returns `{fraud_probability, fraud_prediction, threshold}` — exactly what
-`POST /predict` needs, with no translation layer in the API code.
+The API unwraps the MLflow wrapper and validates transport and feature semantics using its authoritative feature schema before calling the same pipeline. Numeric coercion and alignment are pipeline operations; there is no separate serving transform. Optional signature columns do not broaden the HTTP contract: each record must contain at least one non-missing recognized usable feature. Finite numeric values/numeric strings and nonblank categorical strings are accepted; booleans, nested values, invalid numeric values and empty/all-missing/unknown-only records are rejected.
 
-A second, non-obvious reason for the wrapper: MLflow's own pyfunc layer
-enforces the logged input *signature* strictly by default (rejects e.g. an
-`int64` column where the signature says `double`) — which would defeat the
-whole point of `ColumnAligner` tolerating loosely-typed input. The API
-loads the model via `mlflow.pyfunc.load_model(...).unwrap_python_model()`
-and calls the wrapper directly, bypassing that enforcement layer while
-still keeping the signature logged for documentation/UI purposes.
+## Registry intent and deployment state
+
+Training registers an immutable version and assigns only `candidate`. Frozen promotion Parquet is private; its safe manifest records exact-row identity, source identity, target distribution, time boundaries and its own byte checksum. `src/registry/compare.py` validates each artifact independently, reconciles semantic identities and exact rows, and rescoring uses each immutable model's own stored threshold. `promote.py` enforces absolute/regression quality gates and candidate alias stability, persisting the decision trace before moving `champion`. Missing, inconsistent or incomparable evidence blocks promotion.
+
+`src/deployment/lifecycle.py` independently verifies the approved version/run and champion immediately before persisting an append-only deployment event and replacing current state atomically. API startup reads that state and loads `models:/<name>/<version>`; aliases and legacy stages are not serving targets. Promotion does not reload or deploy. Rollback restores recorded deployment history without moving the champion alias; process recreation is explicit.
+
+## Storage and runtime
+
+Local-lite uses SQLite and local artifact storage; direct Python API execution requires no Docker daemon. The production-like profile defines Postgres, Community MinIO/S3, MLflow, API and NGINX with private internal service networking. Its archived Community MinIO image distribution remains a documented external limitation; this diagram is not a claim that the complete stack passed E2E.
+
+API and MLflow containers use digest-pinned public Wolfi, Python 3.11.17, identical locked native packages and constrained application dependencies. Security evidence reconciles Trivy/Syft OS inventories, scans exact images and reachable Git history, checks native/serialization/server/API compatibility and publishes SPDX SBOMs. The 22 reviewed Python residuals per image remain accepted risk. See [runtime decision](security/runtime-strategy.md).
+
+## Monitoring and release traceability
+
+Request middleware provides bounded bodies, optional API-key authentication, request IDs, redacted structured logging and Prometheus counters. Offline drift uses reference-derived bins, bounded categories, deterministic metrics and supplied provenance. Live prediction logging, delayed-label performance monitoring and alerts remain deferred.
+
+Canonical release traceability is: raw file SHA-256 → dataset fingerprint → split fingerprints → committed config → training commit/run → immutable model version → candidate → frozen promotion gate → champion → deployment event/history → immutable readiness → single explicit final-test report → safe release manifest. [Reproduction guide](canonical-release.md) gives executable commands; `scripts.verify_canonical_release` rejects mismatched identities. Private artifacts are retained locally and are not GitHub release attachments.
 
 ## Module map
 
 | Module | Responsibility |
 |---|---|
-| `src/config.py` | Single source of truth for paths and settings; everything else imports from here |
-| `src/data/ingest.py`, `sampling.py`, `validation.py` | Load, sample, and validate raw IEEE-CIS data |
-| `src/features/pipeline.py` | `ColumnAligner`, schema inference, preprocessing `ColumnTransformer` |
-| `src/modeling/validation.py` | Temporal/random train-val-test split |
-| `src/modeling/evaluate.py` | Metric suite |
-| `src/modeling/threshold.py` | Threshold-selection strategies + cost-based evaluation |
-| `src/modeling/train.py` | Orchestrates the full training run and MLflow logging |
-| `src/modeling/mlflow_wrapper.py` | pyfunc wrapper around the fitted pipeline |
-| `src/registry/promote.py` | candidate → champion promotion gate |
-| `src/registry/compare.py` | candidate vs champion comparison report |
-| `src/api/` | FastAPI service (app, schemas, dependencies, middleware, metrics) |
-| `src/monitoring/drift.py` | Reference-vs-current data drift report |
-| `src/utils/repro.py` | Seeding + run metadata (git/env/data fingerprint) |
+| `src/config.py` | Settings and project-relative paths |
+| `src/data/` | Ingestion, sampling and validation |
+| `src/features/pipeline.py` | Shared fitted preprocessing |
+| `src/modeling/` | Splits, experiments, calibration, threshold, training, final reporting |
+| `src/registry/` | Comparable rescoring and explicit promotion |
+| `src/deployment/` | Immutable deployment/rollback history |
+| `src/api/` | Validated HTTP inference, health/readiness, metrics |
+| `src/monitoring/` | Offline deterministic drift |
+| `scripts/canonical_release.py` | Source audit and preregistration |
+| `scripts/verify_canonical_release.py` | Safe release identity checks |
+| `releases/ieee-cis-v1/` | Safe metadata only |

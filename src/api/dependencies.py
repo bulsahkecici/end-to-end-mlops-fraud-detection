@@ -84,7 +84,7 @@ def resolve_and_load_model() -> tuple[object, DeploymentState]:
 
 
 def load_model_into_state() -> None:
-    from src.api.metrics import MODEL_INFO, MODEL_LOADED
+    from src.api.metrics import MODEL_INFO, MODEL_LOAD_FAILURES_TOTAL, MODEL_LOADED
 
     try:
         model, deployment = resolve_and_load_model()
@@ -106,6 +106,7 @@ def load_model_into_state() -> None:
                 "model_name": deployment.model_name,
                 "model_version": deployment.model_version,
                 "deployment_id": deployment.deployment_id,
+                "action": deployment.action,
             },
         )
     except Exception as exc:  # noqa: BLE001 - intentionally broad: startup must never crash the app
@@ -117,7 +118,8 @@ def load_model_into_state() -> None:
         model_state.load_error = str(exc)
         model_state.feature_contract = None
         MODEL_LOADED.set(0)
-        logger.warning("model_load_failed: %s", exc)
+        MODEL_LOAD_FAILURES_TOTAL.inc()
+        logger.warning("model_load_failed", extra={"error_type": type(exc).__name__})
 
 
 def require_model() -> object:

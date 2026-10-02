@@ -27,7 +27,10 @@ from src.api.metrics import (
     PREDICT_BATCH_SIZE,
     PREDICTION_EXCEPTIONS_TOTAL,
     PREDICTIONS_TOTAL,
+    READINESS_FAILURES_TOTAL,
+    SEMANTIC_VALIDATION_FAILURES_TOTAL,
     render_latest,
+    semantic_validation_reason_label,
 )
 from src.api.middleware import register_middleware, setup_cors
 from src.api.schemas import (
@@ -64,6 +67,7 @@ def health() -> HealthResponse:
 @app.get("/ready", response_model=ReadyResponse)
 def ready() -> ReadyResponse:
     if not model_state.is_ready:
+        READINESS_FAILURES_TOTAL.inc()
         raise HTTPException(
             status_code=503,
             detail="Model is not ready. Check service logs and deployment state.",
@@ -94,6 +98,8 @@ def predict(body: PredictRequest, model=Depends(require_model)) -> PredictRespon
     try:
         validate_records(body.records, feature_contract)
     except SemanticValidationError as exc:
+        reason = semantic_validation_reason_label(issue.code for issue in exc.issues)
+        SEMANTIC_VALIDATION_FAILURES_TOTAL.labels(code=reason).inc()
         raise HTTPException(
             status_code=422,
             detail={
@@ -110,7 +116,10 @@ def predict(body: PredictRequest, model=Depends(require_model)) -> PredictRespon
         raise
     except Exception as exc:  # noqa: BLE001 - never leak a raw pipeline traceback to the client
         PREDICTION_EXCEPTIONS_TOTAL.inc()
-        logger.exception("prediction_failed", extra={"batch_size": len(body.records)})
+        logger.error(
+            "prediction_failed",
+            extra={"batch_size": len(body.records), "error_type": type(exc).__name__},
+        )
         raise HTTPException(status_code=500, detail="Prediction failed") from exc
 
     predictions = [

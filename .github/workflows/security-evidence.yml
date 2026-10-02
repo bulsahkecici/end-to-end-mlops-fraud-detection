@@ -1,0 +1,86 @@
+name: Security Evidence (manual)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  GITLEAKS_VERSION: "8.30.1"
+  GITLEAKS_SHA256: "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb"
+  TRIVY_VERSION: "0.69.3"
+  TRIVY_SHA256: "1816b632dfe529869c740c0913e36bd1629cb7688bd5634f4a858c1d57c88b75"
+  SYFT_VERSION: "1.52.0"
+  SYFT_SHA256: "caeedb81fb0491615f1ebd1761e4145d41ee86dd2cc7bf80669f9f5ad9d6133d"
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out full history
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install checksum-pinned security tools
+        shell: bash
+        run: |
+          set -euo pipefail
+          tool_dir="${RUNNER_TEMP}/security-tools"
+          download_dir="$(mktemp -d)"
+          mkdir -p "${tool_dir}"
+
+          gitleaks_archive="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl --fail --silent --show-error --location \
+            --output "${download_dir}/${gitleaks_archive}" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${gitleaks_archive}"
+          echo "${GITLEAKS_SHA256}  ${download_dir}/${gitleaks_archive}" | sha256sum --check --strict
+          tar -xzf "${download_dir}/${gitleaks_archive}" -C "${tool_dir}" gitleaks
+
+          trivy_archive="trivy_${TRIVY_VERSION}_Linux-64bit.tar.gz"
+          curl --fail --silent --show-error --location \
+            --output "${download_dir}/${trivy_archive}" \
+            "https://github.com/aquasecurity/trivy/releases/download/v${TRIVY_VERSION}/${trivy_archive}"
+          echo "${TRIVY_SHA256}  ${download_dir}/${trivy_archive}" | sha256sum --check --strict
+          tar -xzf "${download_dir}/${trivy_archive}" -C "${tool_dir}" trivy
+
+          syft_archive="syft_${SYFT_VERSION}_linux_amd64.tar.gz"
+          curl --fail --silent --show-error --location \
+            --output "${download_dir}/${syft_archive}" \
+            "https://github.com/anchore/syft/releases/download/v${SYFT_VERSION}/${syft_archive}"
+          echo "${SYFT_SHA256}  ${download_dir}/${syft_archive}" | sha256sum --check --strict
+          tar -xzf "${download_dir}/${syft_archive}" -C "${tool_dir}" syft
+
+          echo "${tool_dir}" >> "${GITHUB_PATH}"
+
+      - name: Scan full reachable Git history for secrets
+        run: |
+          python scripts/security_evidence.py secrets \
+            --repository . \
+            --output-dir "${RUNNER_TEMP}/security-evidence" \
+            --source-revision "${GITHUB_SHA}"
+
+      - name: Build API and MLflow evidence images
+        run: |
+          docker build -f Dockerfile.api -t "ieee-fraud-api:security-${GITHUB_SHA}" .
+          docker build -f Dockerfile.mlflow -t "ieee-fraud-mlflow:security-${GITHUB_SHA}" .
+
+      - name: Scan exact image IDs and generate SPDX JSON SBOMs
+        run: |
+          python scripts/security_evidence.py images \
+            --image "api=ieee-fraud-api:security-${GITHUB_SHA}" \
+            --image "mlflow=ieee-fraud-mlflow:security-${GITHUB_SHA}" \
+            --output-dir "${RUNNER_TEMP}/security-evidence" \
+            --source-revision "${GITHUB_SHA}"
+
+      - name: Upload redacted security evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: security-evidence-${{ github.sha }}
+          path: ${{ runner.temp }}/security-evidence
+          if-no-files-found: warn
+          retention-days: 14

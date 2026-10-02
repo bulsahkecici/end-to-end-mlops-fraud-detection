@@ -6,6 +6,12 @@ import mlflow
 import pytest
 from fastapi.testclient import TestClient
 
+from src.api.metrics import (
+    MODEL_LOAD_FAILURES_TOTAL,
+    READINESS_FAILURES_TOTAL,
+    REQUEST_BODY_REJECTIONS_TOTAL,
+    SEMANTIC_VALIDATION_FAILURES_TOTAL,
+)
 from src.config import settings
 from src.deployment.lifecycle import deploy_champion
 from src.modeling.train import run_training
@@ -144,12 +150,47 @@ def test_predict_empty_records_returns_422(promoted_client):
     resp = client.post("/predict", json={"records": []})
     assert resp.status_code == 422
 
+    before = SEMANTIC_VALIDATION_FAILURES_TOTAL.labels(code="no_usable_features")._value.get()
     for record in ({}, {"unexpected_field": "value"}, {"TransactionAmt": None}):
         resp = client.post("/predict", json={"records": [record]})
         assert resp.status_code == 422
         detail = resp.json()["detail"]
         assert detail["code"] == "semantic_validation_failed"
         assert detail["errors"][0]["code"] == "no_usable_features"
+    assert (
+        SEMANTIC_VALIDATION_FAILURES_TOTAL.labels(code="no_usable_features")._value.get()
+        == before + 3
+    )
+
+
+def test_semantic_validation_metric_counts_each_rejected_request_once(promoted_client):
+    client, _, _ = promoted_client
+
+    single_counter = SEMANTIC_VALIDATION_FAILURES_TOTAL.labels(code="invalid_numeric")
+    multiple_counter = SEMANTIC_VALIDATION_FAILURES_TOTAL.labels(code="multiple")
+    single_before = single_counter._value.get()
+    multiple_before = multiple_counter._value.get()
+
+    single = client.post("/predict", json={"records": [{"TransactionAmt": "not-a-number"}]})
+    assert single.status_code == 422
+    assert single_counter._value.get() == single_before + 1
+    assert multiple_counter._value.get() == multiple_before
+
+    multiple = client.post(
+        "/predict",
+        json={
+            "records": [{"TransactionAmt": "not-a-number", "TransactionDT": "also-not-a-number"}]
+        },
+    )
+    assert multiple.status_code == 422
+    assert len(multiple.json()["detail"]["errors"]) == 2
+    assert single_counter._value.get() == single_before + 1
+    assert multiple_counter._value.get() == multiple_before + 1
+
+    successful = client.post("/predict", json={"records": [{"TransactionAmt": 10.0}]})
+    assert successful.status_code == 200
+    assert single_counter._value.get() == single_before + 1
+    assert multiple_counter._value.get() == multiple_before + 1
 
 
 def test_predict_malformed_json_returns_422(promoted_client):
@@ -204,6 +245,7 @@ def test_predict_enforces_batch_and_actual_body_size_boundaries(promoted_client,
     assert at_limit.status_code == 200
 
     monkeypatch.setattr(settings, "api_max_request_bytes", len(encoded) - 1)
+    before = REQUEST_BODY_REJECTIONS_TOTAL._value.get()
     over_limit = client.post(
         "/predict",
         content=encoded,
@@ -211,6 +253,7 @@ def test_predict_enforces_batch_and_actual_body_size_boundaries(promoted_client,
     )
     assert over_limit.status_code == 413
     assert over_limit.json() == {"detail": "Request body too large"}
+    assert REQUEST_BODY_REJECTIONS_TOTAL._value.get() == before + 1
 
 
 def test_predict_response_never_leaks_raw_traceback_on_internal_error(promoted_client, monkeypatch):
@@ -234,11 +277,15 @@ def test_predict_without_deployment_state_returns_503(patch_mlflow_uri, tmp_path
     monkeypatch.setattr(settings, "deployment_state_path", tmp_path / "missing.json")
     from src.api.app import app
 
+    model_load_before = MODEL_LOAD_FAILURES_TOTAL._value.get()
+    readiness_before = READINESS_FAILURES_TOTAL._value.get()
     with TestClient(app) as client:
         resp = client.get("/ready")
         assert resp.status_code == 503
         resp = client.post("/predict", json={"records": [{"TransactionAmt": 1.0}]})
         assert resp.status_code == 503
+    assert MODEL_LOAD_FAILURES_TOTAL._value.get() == model_load_before + 1
+    assert READINESS_FAILURES_TOTAL._value.get() == readiness_before + 1
 
 
 def test_corrupt_deployment_state_returns_503(patch_mlflow_uri, tmp_path, monkeypatch):

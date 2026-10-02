@@ -1,8 +1,10 @@
 #!/usr/bin/env python
 """Run an isolated production-like Compose deployment/rollback lifecycle.
 
-The script uses disposable Compose volumes, random non-production credentials,
-free host ports, and a temporary deployment-state directory. It always tears
+The base production-like profile publishes only NGINX. For this isolated
+validator, a generated Compose override temporarily binds API, MLflow, and
+MinIO to random loopback-only ports so host-side lifecycle code can exercise
+them without weakening the production configuration. The script always tears
 the stack down, including volumes, before exiting.
 """
 
@@ -22,6 +24,7 @@ from pathlib import Path
 from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
+COMPOSE_FILE = PROJECT_ROOT / "docker-compose.yml"
 sys.path.insert(0, str(PROJECT_ROOT))
 
 
@@ -57,6 +60,32 @@ def _run(
         detail = result.stderr.strip() or "command failed without stderr"
         raise E2EFailure(f"command exited {result.returncode}: {detail[-3000:]}")
     return result
+
+
+def _write_validation_override(path: Path) -> None:
+    path.write_text("""# Generated for scripts/validate_production_e2e.py only.
+services:
+  minio:
+    ports:
+      - "127.0.0.1:${MINIO_HOST_PORT}:9000"
+  mlflow-prod:
+    ports:
+      - "127.0.0.1:${MLFLOW_HOST_PORT}:5000"
+  api-prod:
+    ports:
+      - "127.0.0.1:${API_HOST_PORT}:8000"
+""")
+
+
+def _assert_base_profile_is_contained(compose: list[str], env: dict[str, str]) -> None:
+    rendered = _run(compose + ["config", "--format", "json"], env=env)
+    services = json.loads(rendered.stdout).get("services", {})
+    published = {name for name, service in services.items() if service.get("ports")}
+    if published != {"nginx-prod"}:
+        raise E2EFailure(
+            "base production-like profile must publish only nginx-prod; "
+            f"found {sorted(published)}"
+        )
 
 
 def _http_json(url: str, payload: dict[str, Any] | None = None) -> tuple[int, dict[str, Any]]:
@@ -136,19 +165,33 @@ def _assert_nginx_rate_limit(base_url: str) -> None:
 
 def main() -> int:
     project_name = f"phase4e2e-{secrets.token_hex(4)}"
-    compose = [
+    base_compose = [
         "docker",
         "compose",
+        "-f",
+        str(COMPOSE_FILE),
         "-p",
         project_name,
         "--profile",
         "production-like",
     ]
-    mlflow_port, api_port, nginx_port, minio_port, minio_console_port = (
-        _free_port() for _ in range(5)
-    )
+    mlflow_port, api_port, nginx_port, minio_port = (_free_port() for _ in range(4))
 
     with tempfile.TemporaryDirectory(prefix="phase4_deployment_") as temporary:
+        override_path = Path(temporary) / "validator.compose.yml"
+        _write_validation_override(override_path)
+        compose = [
+            "docker",
+            "compose",
+            "-f",
+            str(COMPOSE_FILE),
+            "-f",
+            str(override_path),
+            "-p",
+            project_name,
+            "--profile",
+            "production-like",
+        ]
         state_dir = Path(temporary) / "state"
         state_dir.mkdir(mode=0o755)
         state_path = state_dir / "current.json"
@@ -165,7 +208,6 @@ def main() -> int:
                 "API_HOST_PORT": str(api_port),
                 "NGINX_HOST_PORT": str(nginx_port),
                 "MINIO_HOST_PORT": str(minio_port),
-                "MINIO_CONSOLE_HOST_PORT": str(minio_console_port),
                 "DEPLOYMENT_STATE_DIR": str(state_dir),
                 "DEPLOYMENT_STATE_PATH": str(state_path),
                 "MLFLOW_TRACKING_URI": f"http://127.0.0.1:{mlflow_port}",
@@ -177,6 +219,7 @@ def main() -> int:
 
         passed = False
         try:
+            _assert_base_profile_is_contained(base_compose, env)
             _run(compose + ["config"], env=env)
             _run(compose + ["build", "mlflow-prod", "api-prod"], env=env, timeout=1200)
             _run(

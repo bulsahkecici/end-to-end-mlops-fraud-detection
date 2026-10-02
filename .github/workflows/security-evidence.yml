@@ -65,12 +65,56 @@ jobs:
 
       - name: Build API and MLflow evidence images
         run: |
-          docker build -f Dockerfile.api -t "ieee-fraud-api:security-${GITHUB_SHA}" .
-          docker build -f Dockerfile.mlflow -t "ieee-fraud-mlflow:security-${GITHUB_SHA}" .
+          docker build --pull --no-cache -f Dockerfile.api -t "ieee-fraud-api:security-${GITHUB_SHA}" .
+          docker build --pull --no-cache -f Dockerfile.mlflow -t "ieee-fraud-mlflow:security-${GITHUB_SHA}" .
+
+      - name: Verify final-image runtime compatibility without build tools
+        run: |
+          docker run --rm -i "ieee-fraud-api:security-${GITHUB_SHA}" python - <<'PY'
+          import json
+          import tempfile
+          from importlib import metadata
+          from pathlib import Path
+          from types import SimpleNamespace
+          import joblib
+          import mlflow.pyfunc
+          import pandas as pd
+          from lightgbm import LGBMClassifier
+          from sklearn.pipeline import Pipeline
+          from src.modeling.mlflow_wrapper import FraudModelWrapper
+          import src.api.app
+          import src.registry.promote
+          assert metadata.version("mlflow") == "2.22.5"
+          for package in ("setuptools", "wheel"):
+              try:
+                  metadata.version(package)
+              except metadata.PackageNotFoundError:
+                  pass
+              else:
+                  raise AssertionError(f"Unexpected build tool: {package}")
+          frame = pd.DataFrame({"value": range(40)})
+          pipeline = Pipeline([("model", LGBMClassifier(n_estimators=2, min_child_samples=2, verbosity=-1))])
+          pipeline.fit(frame, [0, 1] * 20)
+          with tempfile.TemporaryDirectory() as directory:
+              root = Path(directory)
+              joblib.dump(pipeline, root / "pipeline.joblib")
+              (root / "metadata.json").write_text(json.dumps({"threshold": 0.5}))
+              artifacts = {"pipeline": str(root / "pipeline.joblib"), "metadata": str(root / "metadata.json")}
+              wrapper = FraudModelWrapper()
+              wrapper.load_context(SimpleNamespace(artifacts=artifacts))
+              expected = wrapper.predict(None, frame)
+              mlflow.pyfunc.save_model(str(root / "model"), python_model=wrapper, artifacts=artifacts)
+              actual = mlflow.pyfunc.load_model(str(root / "model")).predict(frame)
+              pd.testing.assert_frame_equal(expected, actual)
+          print("API serialization, MLflow load, prediction and runtime imports PASS (synthetic smoke only)")
+          PY
+          docker run --rm "ieee-fraud-mlflow:security-${GITHUB_SHA}" python -c 'from importlib import metadata; import mlflow, psycopg2, boto3; assert metadata.version("mlflow") == "2.22.5"'
+          docker run --rm "ieee-fraud-mlflow:security-${GITHUB_SHA}" mlflow server --help
 
       - name: Scan exact image IDs and generate SPDX JSON SBOMs
         run: |
           python scripts/security_evidence.py images \
+            --baseline security/container_vulnerability_baseline.json \
             --image "api=ieee-fraud-api:security-${GITHUB_SHA}" \
             --image "mlflow=ieee-fraud-mlflow:security-${GITHUB_SHA}" \
             --output-dir "${RUNNER_TEMP}/security-evidence" \

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import subprocess
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -32,7 +33,7 @@ def test_secret_scan_classifies_results_and_redacts(
         if command == ["gitleaks", "version"]:
             return _completed(command, stdout="8.30.1\n")
         report_path = Path(command[command.index("--report-path") + 1])
-        report_path.write_text("[]\n", encoding="utf-8")
+        report_path.write_text(json.dumps([{}] if scan_returncode == 1 else []), encoding="utf-8")
         return _completed(command, returncode=scan_returncode)
 
     monkeypatch.setattr(security_evidence, "_run_command", fake_run)
@@ -64,12 +65,12 @@ def test_image_evidence_scans_immutable_ids_and_writes_spdx(
             return _completed(command, stdout=f"{image_id}\n")
         if command[0] == "trivy":
             report_path = Path(command[command.index("--output") + 1])
-            report_path.write_text('{"Results": []}\n', encoding="utf-8")
+            report_path.write_text(json.dumps(_report([], command[-1])), encoding="utf-8")
             return _completed(command)
         if command[0] == "syft":
             output = next(value for value in command if value.startswith("spdx-json="))
             Path(output.removeprefix("spdx-json=")).write_text(
-                '{"spdxVersion": "SPDX-2.3"}\n', encoding="utf-8"
+                json.dumps(_sbom()), encoding="utf-8"
             )
             return _completed(command)
         raise AssertionError(command)
@@ -109,7 +110,9 @@ def test_image_evidence_distinguishes_findings_from_execution_failure(
             return _completed(command, stdout=f"{image_ids[command[-1]]}\n")
         if command[0] == "trivy":
             report_path = Path(command[command.index("--output") + 1])
-            report_path.write_text('{"Results": []}\n', encoding="utf-8")
+            report_path.write_text(
+                json.dumps(_report([_vulnerability()], command[-1])), encoding="utf-8"
+            )
             return _completed(
                 command,
                 returncode=(
@@ -120,7 +123,9 @@ def test_image_evidence_distinguishes_findings_from_execution_failure(
             )
         if command[0] == "syft":
             output = next(value for value in command if value.startswith("spdx-json="))
-            Path(output.removeprefix("spdx-json=")).write_text("{}\n", encoding="utf-8")
+            Path(output.removeprefix("spdx-json=")).write_text(
+                json.dumps(_sbom()), encoding="utf-8"
+            )
             return _completed(command)
         raise AssertionError(command)
 
@@ -136,9 +141,10 @@ def test_image_evidence_distinguishes_findings_from_execution_failure(
 
     summary = json.loads((tmp_path / "images-summary.json").read_text())
     assert result == 2
-    assert summary["overall_status"] == "ERROR"
-    assert summary["images"][0]["trivy"]["status"] == "FINDINGS"
-    assert summary["images"][1]["trivy"]["status"] == "ERROR"
+    assert summary["overall_status"] == "FAIL"
+    assert summary["images"][0]["trivy"]["status"] == "FAIL"
+    assert summary["images"][0]["baseline_evaluation"]["issues"][0]["reason"] == "unreviewed"
+    assert summary["images"][1]["trivy"]["status"] == "FAIL"
     assert all(image["sbom"]["status"] == "PASS" for image in summary["images"])
 
 
@@ -167,3 +173,308 @@ def test_wrong_tool_version_fails_closed_without_running_scans(
 
     assert result == 2
     assert commands == [["trivy", "--version"]]
+
+
+TODAY = date(2026, 10, 2)
+
+
+def _entry(**changes):
+    entry = {
+        "image_role": "api",
+        "vulnerability_id": "CVE-2026-25087",
+        "package": "pyarrow",
+        "installed_version": "17.0.0",
+        "severity": "HIGH",
+        "fixed_version_reported": "23.0.1",
+        "rationale": "Fix conflicts with MLflow pyarrow<20 constraint.",
+        "reviewed_on": "2026-10-02",
+        "expires_on": "2026-11-01",
+    }
+    return entry | changes
+
+
+def _vulnerability(**changes):
+    return {
+        "VulnerabilityID": "CVE-2026-25087",
+        "PkgName": "pyarrow",
+        "InstalledVersion": "17.0.0",
+        "Severity": "HIGH",
+        "FixedVersion": "23.0.1",
+    } | changes
+
+
+def _report(vulnerabilities, image_id=None):
+    return {
+        "SchemaVersion": 2,
+        "ArtifactName": image_id,
+        "Metadata": {"ImageID": image_id},
+        "Results": [{"Vulnerabilities": vulnerabilities}],
+    }
+
+
+def _evaluate(vulnerabilities, entries=None, role="api"):
+    return security_evidence.evaluate_report(
+        _report(vulnerabilities), role, [_entry()] if entries is None else entries, today=TODAY
+    )
+
+
+def _load(tmp_path, entries):
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps({"schema_version": "1.0", "accepted_findings": entries}))
+    return security_evidence.load_baseline(path)
+
+
+def test_exact_residual_accepted_and_no_findings_pass():
+    result = _evaluate([_vulnerability()])
+    assert result["status"] == "ACCEPTED"
+    assert result["matched_count"] == 1
+    assert _evaluate([], [])["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"PkgName": "other"},
+        {"InstalledVersion": "19.0.1"},
+        {"VulnerabilityID": "CVE-2026-99999"},
+        {"Severity": "CRITICAL"},
+    ],
+)
+def test_changed_identity_fails(changes):
+    assert _evaluate([_vulnerability(**changes)])["status"] == "FAIL"
+
+
+def test_image_roles_and_versions_evaluated_independently():
+    entries = [_entry(), _entry(image_role="mlflow", installed_version="19.0.1")]
+    assert _evaluate([_vulnerability()], entries, "api")["status"] == "ACCEPTED"
+    assert _evaluate([_vulnerability()], entries, "mlflow")["status"] == "FAIL"
+    assert (
+        _evaluate([_vulnerability(InstalledVersion="19.0.1")], entries, "mlflow")["status"]
+        == "ACCEPTED"
+    )
+    assert _evaluate([_vulnerability()], entries, "unknown")["status"] == "FAIL"
+
+
+@pytest.mark.parametrize("changes", [{"expires_on": "2026-10-02"}, {"reviewed_on": "2026-10-03"}])
+def test_expired_or_future_review_fails(changes):
+    assert _evaluate([_vulnerability()], [_entry(**changes)])["status"] == "FAIL"
+
+
+def test_new_finding_fails_and_stale_entry_is_flagged():
+    result = _evaluate([_vulnerability(), _vulnerability(VulnerabilityID="CVE-2026-99999")])
+    assert result["status"] == "FAIL"
+    stale = _evaluate([])
+    assert stale["status"] == "FAIL"
+    assert stale["stale_baseline_requires_review"]
+    assert stale["stale_baseline_entries"] == [list(security_evidence._identity(_entry()))]
+
+
+@pytest.mark.parametrize("fixed", ["19.0.2", "", "23.0.2"])
+def test_changed_fix_snapshot_requires_review(fixed):
+    result = _evaluate([_vulnerability(FixedVersion=fixed)])
+    assert result["status"] == "FAIL"
+    assert result["issues"][0]["reason"] == "fixed_version_changed"
+
+
+def test_output_order_and_identical_duplicates_do_not_change_decision():
+    second_entry = _entry(vulnerability_id="CVE-2026-99999")
+    second_finding = _vulnerability(VulnerabilityID="CVE-2026-99999")
+    expected = _evaluate([_vulnerability(), second_finding], [_entry(), second_entry])
+    assert expected == _evaluate(
+        [second_finding, _vulnerability(), second_finding], [second_entry, _entry()]
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"severity": "LOW"},
+        {"severity": "high"},
+        {"image_role": "*"},
+        {"package": "py*"},
+        {"vulnerability_id": "CVE-*"},
+        {"installed_version": "17.?"},
+        {"rationale": ""},
+        {"fixed_version_reported": None},
+        {"reviewed_on": "2026-02-30"},
+        {"reviewed_on": "20261002"},
+        {"reviewed_on": "2026-11-02"},
+        {"expires_on": None},
+    ],
+)
+def test_baseline_validation_rejects_invalid_entries(tmp_path, changes):
+    with pytest.raises(security_evidence.EvidenceError):
+        _load(tmp_path, [_entry(**changes)])
+
+
+def test_baseline_dates_and_duplicate_identities(tmp_path):
+    assert _load(tmp_path, [_entry()]) == [_entry()]
+    with pytest.raises(security_evidence.EvidenceError, match="duplicate"):
+        _load(tmp_path, [_entry(), _entry()])
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "{",
+        "[]",
+        "{}",
+        '{"schema_version":"1.0","accepted_findings":{}}',
+        '{"schema_version":"1.0","schema_version":"1.0","accepted_findings":[]}',
+    ],
+)
+def test_malformed_baseline_json_fails(tmp_path, content):
+    path = tmp_path / "bad.json"
+    path.write_text(content)
+    with pytest.raises(security_evidence.EvidenceError):
+        security_evidence.load_baseline(path)
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        None,
+        [],
+        {},
+        {"SchemaVersion": 2, "Results": {}},
+        {"SchemaVersion": 2, "Results": [None]},
+        {"SchemaVersion": 2, "Results": [{"Vulnerabilities": None}]},
+        _report([{}]),
+        _report([_vulnerability(FixedVersion=None)]),
+    ],
+)
+def test_malformed_trivy_structure_fails(payload):
+    with pytest.raises(security_evidence.EvidenceError):
+        security_evidence.evaluate_report(payload, "api", [], today=TODAY)
+
+
+def test_image_identity_mismatch_fails():
+    with pytest.raises(security_evidence.EvidenceError, match="identity"):
+        security_evidence.evaluate_report(_report([], "wrong"), "api", [], image_id="expected")
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        "scanner",
+        "sbom",
+        "malformed_sbom",
+        "malformed",
+        "identity",
+        "exit_mismatch",
+        "image_resolution",
+        "none",
+    ],
+)
+def test_execution_errors_never_become_accepted(tmp_path, monkeypatch, failure):
+    image_id = f"sha256:{'a' * 64}"
+    baseline = tmp_path / "baseline.json"
+    _load(tmp_path, [_entry(reviewed_on="2020-01-01", expires_on="2099-01-01")])
+
+    def fake_run(command, *, cwd=None):
+        command = list(command)
+        if command == ["trivy", "--version"]:
+            return _completed(command, stdout="0.69.3")
+        if command == ["syft", "version"]:
+            return _completed(command, stdout="1.52.0")
+        if command[:3] == ["docker", "image", "inspect"]:
+            return _completed(
+                command, stdout="invalid" if failure == "image_resolution" else image_id
+            )
+        if command[0] == "trivy":
+            path = Path(command[command.index("--output") + 1])
+            payload = _report([_vulnerability()], "wrong" if failure == "identity" else image_id)
+            path.write_text("{" if failure == "malformed" else json.dumps(payload))
+            code = 7 if failure == "scanner" else 0 if failure == "exit_mismatch" else 20
+            return _completed(command, returncode=code)
+        output = next(value for value in command if value.startswith("spdx-json="))
+        Path(output.removeprefix("spdx-json=")).write_text(
+            "{}" if failure == "malformed_sbom" else json.dumps(_sbom())
+        )
+        return _completed(command, returncode=7 if failure == "sbom" else 0)
+
+    monkeypatch.setattr(security_evidence, "_run_command", fake_run)
+    assert security_evidence.run_image_evidence(
+        [security_evidence.ImageTarget("api", "api:test")], tmp_path, "rev", baseline
+    ) == (0 if failure == "none" else 2)
+    summary = json.loads((tmp_path / "images-summary.json").read_text())
+    assert summary["overall_status"] == ("ACCEPTED" if failure == "none" else "FAIL")
+
+
+def test_runtime_build_tool_policy():
+    root = Path(__file__).resolve().parents[2]
+    for filename in ("Dockerfile.api", "Dockerfile.mlflow"):
+        runtime = (root / filename).read_text().split("FROM ")[-1]
+        assert "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y" in runtime
+        assert "rm -rf /var/lib/apt/lists/*" in runtime
+        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in runtime
+        assert runtime.index("pip uninstall") > runtime.index(
+            "COPY --from=builder" if filename == "Dockerfile.api" else "pip install"
+        )
+        assert "build-essential" not in runtime
+    assert "pyarrow==17.0.0" in (root / "requirements.txt").read_text()
+
+
+def test_checked_in_baseline_has_only_exact_mlflow_pyarrow_residuals():
+    entries = security_evidence.load_baseline(security_evidence.BASELINE_PATH)
+    assert len(entries) == 44
+    assert {entry["package"] for entry in entries} == {"mlflow", "pyarrow"}
+    assert {entry["image_role"] for entry in entries} == {"api", "mlflow"}
+    assert all(
+        entry["installed_version"] == "2.22.5" for entry in entries if entry["package"] == "mlflow"
+    )
+
+
+def test_mlflow_environment_metadata_tolerates_missing_build_tools(monkeypatch):
+    from importlib import metadata
+
+    from mlflow.utils.environment import _PythonEnv
+
+    original_version = metadata.version
+
+    def without_build_tools(package):
+        if package in {"setuptools", "wheel"}:
+            raise metadata.PackageNotFoundError(package)
+        return original_version(package)
+
+    monkeypatch.setattr(metadata, "version", without_build_tools)
+    dependencies = _PythonEnv.current().build_dependencies
+    assert "setuptools" in dependencies
+    assert "wheel" in dependencies
+
+
+def test_conflicting_duplicate_trivy_findings_fail():
+    with pytest.raises(security_evidence.EvidenceError, match="conflicting"):
+        _evaluate([_vulnerability(), _vulnerability(FixedVersion="19.0.2")])
+
+
+def test_expired_stale_baseline_still_fails():
+    result = _evaluate([], [_entry(expires_on="2026-10-02")])
+    assert result["status"] == "FAIL"
+    assert result["stale_baseline_requires_review"]
+
+
+def _sbom():
+    return {
+        "spdxVersion": "SPDX-2.3",
+        "SPDXID": "SPDXRef-DOCUMENT",
+        "dataLicense": "CC0-1.0",
+        "documentNamespace": "https://example.test/sbom",
+        "creationInfo": {"creators": ["Tool: syft-1.52.0"]},
+        "packages": [{"name": "mlflow", "SPDXID": "SPDXRef-Package-mlflow"}],
+    }
+
+
+@pytest.mark.parametrize("payload", [{}, [None], [{}]])
+def test_secret_scan_rejects_malformed_or_inconsistent_report(tmp_path, monkeypatch, payload):
+    def fake_run(command, *, cwd=None):
+        command = list(command)
+        if command == ["gitleaks", "version"]:
+            return _completed(command, stdout="8.30.1")
+        Path(command[command.index("--report-path") + 1]).write_text(json.dumps(payload))
+        return _completed(command)
+
+    monkeypatch.setattr(security_evidence, "_run_command", fake_run)
+    assert security_evidence.run_secret_scan(tmp_path, tmp_path / "evidence", "revision") == 2
+    summary = json.loads((tmp_path / "evidence/gitleaks-summary.json").read_text())
+    assert summary["status"] == "ERROR"

@@ -258,3 +258,26 @@ Phase 4.
 All `make` targets are thin wrappers over plain Python/docker commands —
 see the comment block at the top of the `Makefile` for the direct
 PowerShell-friendly equivalent of each target if `make` isn't available.
+
+## Reviewed container findings
+
+Post-Phase-5 security evidence evaluates exact image findings against
+`security/container_vulnerability_baseline.json`. The `images` command in
+`scripts/security_evidence.py` uses this baseline by default; `--baseline` can
+select an explicitly reviewed file. PASS and ACCEPTED exit zero, while FAIL
+exits nonzero. ACCEPTED denotes reviewed residual risk, not vulnerability-free
+images. Scanner errors, invalid evidence, identity failures, SBOM failures,
+changed findings/fix snapshots, and expired reviews fail closed. Stale entries
+fail closed until reviewed and reconciled. Never extend the baseline merely to
+make CI green; obtain fresh image evidence and document each unavoidable risk.
+
+The runtime images upgrade Debian packages and remove setuptools/wheel after
+installation. The canonical prediction process and MLflow tracking server do
+not use these build tools directly; arbitrary environment-building operations
+are outside this image policy. Python 3.11 and MLflow 2.22.5 remain unchanged.
+Container compatibility and OS vulnerability reduction remain pending fresh
+remote builds/scans because local Colima is unavailable. Existing network
+containment remains unchanged. See the post-Phase-5 section in
+`docs/production-hardening/PHASE_05_MONITORING_SECURITY.md` for review expiry,
+PyArrow constraints, and the MLflow migration boundary. Phase 6 is blocked
+until remediation verification completes.

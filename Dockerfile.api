@@ -10,13 +10,18 @@ FROM python:3.11.10-slim AS runtime
 # libgomp1 provides libgomp.so.1, the OpenMP runtime lightgbm's compiled
 # wheel dynamically links against — absent from the slim base image, so
 # without it the import fails at container start (not at build time).
-RUN apt-get update && apt-get install -y --no-install-recommends libgomp1 \
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Pin a fixed, non-root uid/gid so file ownership is deterministic across builds.
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 
 COPY --from=builder /install /usr/local
+
+# Dependency installation is complete; serving loads the fitted model in-process.
+RUN python -m pip uninstall -y setuptools wheel && python -m pip check
 
 WORKDIR /app
 COPY src ./src

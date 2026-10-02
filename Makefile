@@ -42,8 +42,8 @@ security-secret-scan:
 	python scripts/security_evidence.py secrets --repository . --output-dir $(SECURITY_EVIDENCE_DIR) --source-revision "$$(git rev-parse HEAD)"
 
 security-image-build:
-	docker build -f Dockerfile.api -t $(SECURITY_API_IMAGE) .
-	docker build -f Dockerfile.mlflow -t $(SECURITY_MLFLOW_IMAGE) .
+	docker build --pull --no-cache -f Dockerfile.api -t $(SECURITY_API_IMAGE) .
+	docker build --pull --no-cache -f Dockerfile.mlflow -t $(SECURITY_MLFLOW_IMAGE) .
 
 security-image-evidence: security-image-build
 	python scripts/security_evidence.py images --image api=$(SECURITY_API_IMAGE) --image mlflow=$(SECURITY_MLFLOW_IMAGE) --output-dir $(SECURITY_EVIDENCE_DIR) --source-revision "$$(git rev-parse HEAD)"

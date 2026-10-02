@@ -190,3 +190,58 @@ daemon access was unavailable, so local API/MLflow builds, Trivy scans, image
 SBOM generation, NGINX runtime checks, and production-like E2E were NOT RUN.
 The manual CI evidence workflow remains pending execution, and production-like
 E2E remains independently blocked by the obsolete Community MinIO image.
+
+## Post-Phase-5 container security remediation — 2026-10-02
+
+The actual manual workflow run `36988628850` at merged checkpoint
+`3764601e559d25771770ac280c58b2932e377ef4` failed closed on real container
+findings. Artifact `11218502716` contains 132 HIGH/CRITICAL findings per image
+(115 HIGH, 17 CRITICAL; 107 Debian, 25 Python; 66 with fixes, 66 without).
+There are 75 unique vulnerability IDs across both images. API PyArrow is
+17.0.0; MLflow's compatible transitive resolution was 19.0.1.
+
+Both final runtime stages now refresh apt indexes and perform a noninteractive
+Debian package upgrade, preserving API's libgomp1 and cleaning apt lists.
+The Python 3.11.10 base tag is retained consistently; digest pinning is deferred
+because an authoritative immutable digest was not established in this change.
+Setuptools and wheel are removed after dependency installation, followed by
+`pip check`. They are unpinned packaging tools, not application dependencies;
+inspection found no direct runtime imports in the application, MLflow,
+LightGBM, pandas, or sklearn. The canonical API loads its fitted model in the
+existing process, and the MLflow container runs the tracking server. This is
+not a guarantee for arbitrary MLflow model-environment construction or build
+commands. Runtime compatibility still requires fresh container verification.
+
+`security/container_vulnerability_baseline.json` contains 44 exact reviewed
+MLflow/PyArrow entries generated from the downloaded artifact, with source
+revision, run/artifact IDs, and report SHA-256 fingerprints. No OS finding or
+packaging-tool finding is pre-accepted. Per image, MLflow 2.22.5 has 21 findings:
+18 report only 3.x fixes and three report no fix (CVE-2026-0545,
+CVE-2024-37059, CVE-2025-15381). PyArrow CVE-2026-25087 reports a fix at 23.0.1,
+outside MLflow 2.22.5's `pyarrow>=4,<20` constraint. These remain accepted risk,
+not fixed findings or asserted false positives. Network containment is unchanged
+and reduces exposure without remediation.
+
+The image evidence command defaults to the checked-in baseline; CI passes it
+explicitly and builds with `--pull --no-cache`. PASS means no HIGH/CRITICAL
+findings. ACCEPTED means every finding matches a current exact review. FAIL
+means unreviewed/changed findings, expired/future reviews, scanner/tool errors,
+malformed reports/baseline, mismatched image identity, inconsistent scanner exit
+codes, or SBOM failure. PASS and ACCEPTED exit zero; FAIL exits nonzero.
+ACCEPTED does not mean vulnerability-free.
+
+Identity includes image role, vulnerability ID, package, installed version, and
+severity. Wildcards and duplicate identities are rejected. Any change to the
+reported fixed-version snapshot fails for re-review, including newly compatible
+fixes; compatibility is not guessed from a version string. Reviews expire on
+2026-11-01 (expiry day is already expired), and dates use UTC. Stale entries are
+explicitly listed in each image's `baseline_evaluation` and fail closed until
+reviewed and reconciled. Summary records include a baseline SHA-256 and deterministic, order-independent issue
+identities. Diagnostic artifact upload remains `always()`.
+
+Fresh builds, pinned Trivy scans, and Syft SBOMs remain required remotely.
+Any remaining OS findings require remediation; only the reviewed
+MLflow/PyArrow residual risk is eligible for final acceptance. The old reports deliberately remain FAIL, with
+22 matched and 110 unreviewed findings per image. No OS reduction is claimed.
+Phase 6 remains blocked until this remediation is verified; MLflow migration,
+MinIO replacement, drift, authentication, and model lifecycle changes are excluded.

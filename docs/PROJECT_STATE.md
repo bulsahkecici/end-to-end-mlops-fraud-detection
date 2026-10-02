@@ -1,6 +1,7 @@
 # Project state
 
-- **Current phase:** Phase 6 canonical real IEEE-CIS release COMPLETE under the
+- **Current phase:** Final documentation/portfolio release audit in progress;
+  Phase 6 canonical real IEEE-CIS release COMPLETE under the
   explicitly authorized external-infrastructure exception; production-like E2E
   remains NOT VERIFIED. Phase 5 security remediation remains verified.
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
@@ -8,7 +9,11 @@
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next required action:** None within Phase 6. No post-Phase-6 redesign is started.
+- **Next required action:** Final-audit PR CI/merge and localized portfolio verification. No model or infrastructure redesign is started.
+
+Dated records below are historical checkpoints; later verified records supersede
+earlier pending/blocker statements. See [final audit](final-audit.md) for the current
+release presentation audit and actual local command results.
 
 ## Canonical architecture
 
@@ -810,3 +815,19 @@ private artifacts are tracked. The original stash remains untouched:
 `3384b5a200c73bd07a36dabb11f274280d72ca20`.
 
 **PHASE 6 CANONICAL IEEE-CIS RELEASE VERIFIED.**
+
+## Final audit local verification — 2026-10-02
+
+Dedicated `release/final-audit-portfolio` starts from verified master
+8e4c4b74d5712e00691c795be561ac70f29d4295. README, model card, architecture,
+reproduction and MIT/source-versus-data licensing are polished. Safe release
+manifests and ieee-cis-v1 tag are unchanged. Local checks: unit 253, integration
+21, full 274 and coverage 274 at 87.77%; Ruff/Black/mypy, pip check, reviewed
+dependency audit, both Compose renders, normal/optimized safe release verifier,
+relative links/private-artifact inspection, full-history Gitleaks zero findings
+and diff check all PASS (exit 0). See final-audit.md for scope and exceptions.
+Master protection and repository metadata are configured; three extant fully
+merged branches removed, two with unique history retained. No image/security
+baseline/model/evaluation changes, no retraining and no final-test rerun.
+Original stash is unchanged: 3384b5a200c73bd07a36dabb11f274280d72ca20.
+PR/master remote verification remains pending at this pre-commit checkpoint.

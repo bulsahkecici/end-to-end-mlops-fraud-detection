@@ -1,29 +1,16 @@
-FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS prepared
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# MLflow does not publish a ghcr.io/mlflow/mlflow:v2.22.5 image. Build the
-# server from the same pinned Python base and package versions as the runtime,
-# including the Postgres/S3 drivers required by the production-like profile.
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS builder
+RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 COPY docker/mlflow.constraints /constraints.txt
-RUN pip install --no-cache-dir -c /constraints.txt \
-    mlflow==2.22.5 \
-    sqlalchemy==2.0.51 \
-    psycopg2-binary==2.9.10 \
-    boto3==1.35.90 \
-    lightgbm==4.6.0 \
-    numpy==2.0.2 pandas==2.2.3 scikit-learn==1.5.2 joblib==1.4.2
-
-# Build tooling is unnecessary for the tracking server after installation.
+RUN pip install --no-cache-dir --only-binary=:all: -c /constraints.txt \
+    mlflow==2.22.5 sqlalchemy==2.0.51 psycopg2-binary==2.9.10 boto3==1.35.90 \
+    lightgbm==4.6.0 numpy==2.0.2 pandas==2.2.3 scikit-learn==1.5.2 joblib==1.4.2
 RUN python -m pip uninstall -y setuptools wheel && python -m pip check
 
-COPY docker/assemble_runtime.py /assemble_runtime.py
-RUN python /assemble_runtime.py
-
-FROM scratch AS runtime
-COPY --from=prepared /runtime /
-ENV PATH=/usr/local/bin PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
-RUN ["/usr/local/bin/python", "-m", "pip", "check"]
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS runtime
+RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH LANG=C.UTF-8 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN python -m pip check
+CMD ["python"]

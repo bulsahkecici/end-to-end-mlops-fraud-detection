@@ -405,21 +405,19 @@ def test_runtime_build_tool_policy():
     root = Path(__file__).resolve().parents[2]
     for filename in ("Dockerfile.api", "Dockerfile.mlflow"):
         contents = (root / filename).read_text()
-        prepared, runtime = contents.rsplit("FROM scratch AS runtime", 1)
-        assert "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y" in prepared
-        assert "rm -rf /var/lib/apt/lists/*" in prepared
-        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in prepared
-        assert prepared.index("pip uninstall -y setuptools wheel") > prepared.index(
-            "COPY --from=builder" if filename == "Dockerfile.api" else "pip install"
-        )
-        assert "RUN python /assemble_runtime.py" in prepared
-        assert "COPY --from=prepared /runtime /" in runtime
-        assert 'RUN ["/usr/local/bin/python", "-m", "pip", "check"]' in runtime
+        builder, runtime = contents.rsplit("FROM ", 1)
+        assert "wolfi-base:latest@sha256:" in runtime
+        assert "python-3.11=3.11.17-r0" in runtime
+        assert "libgomp=16.2.0-r1" in runtime
+        assert "libstdc++=16.2.0-r1" in runtime
+        assert "ca-certificates-bundle=20260909-r2" in runtime
+        assert "tzdata=2026e-r0" in runtime
+        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in builder
+        assert builder.index("pip uninstall -y setuptools wheel") > builder.index("pip install")
+        assert "--only-binary=:all:" in builder
+        assert "COPY --from=builder /opt/venv /opt/venv" in runtime
+        assert "RUN python -m pip check" in runtime
         assert "build-essential" not in contents
-    api_prepared = (root / "Dockerfile.api").read_text().split("FROM scratch")[0]
-    assert api_prepared.index("pip uninstall -y packaging") < api_prepared.index(
-        "COPY --from=builder"
-    )
     assert "pyarrow==17.0.0" in (root / "requirements.txt").read_text()
 
 

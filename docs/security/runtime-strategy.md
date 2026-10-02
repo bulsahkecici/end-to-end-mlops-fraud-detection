@@ -96,3 +96,27 @@ validation exercises curses terminfo and both UUID1/UUID4 paths, rather than
 claiming support from imports alone. The vulnerable CLI executables infocmp,
 nsenter and mount must be absent from both final images. This permits precise
 reachability review of any conservatively source-mapped residual findings.
+
+## Public Wolfi evidence changes the selection
+
+The independently downloaded public `https://packages.wolfi.dev/os/x86_64/APKINDEX.tar.gz`
+contains **python-3.11 and python-3.11-base 3.11.17-r0**, current glibc 2.43-r13,
+ncurses 6.6.20260926-r0, libgomp/libstdc++ 16.2.0-r1, certificates 20260909-r2
+and timezone data 2026e-r0. Thus the initial catalog-only conclusion about C
+was incomplete: the paid ready-made image is not the only supported route.
+
+C is now the selected candidate, pending real validation. Digest-pinned public
+Wolfi plus its version-pinned Python/native packages avoids custom rootfs/ELF
+maintenance, optional-extension deletions, distro compilation and unstable Debian
+mixing. A matched builder/runtime venv preserves the existing pinned Python model
+stack. Binary wheels only; pip check in builder and final runtime. Python
+build-tool distributions are removed after installation; APK metadata remains
+intact. No source/package database files are surgically deleted. The final source
+diff removes the experimental D collector. A shell and APK are retained as
+ordinary upstream distro components; their actual security results must pass.
+
+The complete requested imports, native stdlib/certificates/timezone checks,
+cross-image serialization/pyfunc, live MLflow, and the non-root nine-step API
+lifecycle remain required. No compatibility or security count is inferred from
+the Wolfi name. D runtime evidence remains useful comparison data, not the final
+production strategy. Any newly unreviewed finding fails the unchanged policy.

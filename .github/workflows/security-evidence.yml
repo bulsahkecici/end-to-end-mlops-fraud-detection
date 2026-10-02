@@ -122,7 +122,7 @@ jobs:
               -v "${GITHUB_WORKSPACE}/src:/app/src:ro" \
               -v "${GITHUB_WORKSPACE}/docker/runtime_smoke.py:/runtime_smoke.py:ro" \
               "ieee-fraud-${role}:security-${GITHUB_SHA}" python /runtime_smoke.py
-            docker run --rm "ieee-fraud-${role}:security-${GITHUB_SHA}" python -c 'from pathlib import Path; print(Path("/usr/share/runtime/closure.json").read_text())' > "${RUNNER_TEMP}/security-evidence/${role}-runtime-closure.json"
+            docker run --rm "ieee-fraud-${role}:security-${GITHUB_SHA}" apk info -v > "${RUNNER_TEMP}/security-evidence/${role}-runtime-packages.txt"
             docker image inspect "ieee-fraud-${role}:security-${GITHUB_SHA}" > "${RUNNER_TEMP}/security-evidence/${role}-image-inspect.json"
           done
           docker run --rm --workdir /app \

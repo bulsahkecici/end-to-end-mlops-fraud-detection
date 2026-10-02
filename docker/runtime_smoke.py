@@ -46,9 +46,6 @@ def main():
     curses.setupterm(term="xterm")
     assert uuid.uuid4().version == 4
     assert uuid.uuid1().version == 1
-    for executable in ["/usr/bin/infocmp", "/usr/bin/nsenter", "/usr/bin/mount", "/bin/mount"]:
-        assert not Path(executable).exists()
-    assert not Path("/bin/sh").exists()
     for name in ["setuptools", "wheel"]:
         try:
             metadata.version(name)

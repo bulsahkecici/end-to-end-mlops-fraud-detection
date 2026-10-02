@@ -1,58 +1,30 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS builder
-
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS builder
+RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /build
 COPY requirements.txt .
 COPY docker/api.constraints /constraints.txt
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt -c /constraints.txt
-
-FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS prepared
-
-# libgomp1 provides libgomp.so.1, the OpenMP runtime lightgbm's compiled
-# wheel dynamically links against — absent from the slim base image, so
-# without it the import fails at container start (not at build time).
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Pin a fixed, non-root uid/gid so file ownership is deterministic across builds.
-RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
-
-# Remove base packaging metadata before overlaying MLflow's compatible version.
-# Otherwise the base dist-info survives alongside the builder-installed copy.
-RUN python -m pip uninstall -y packaging
-COPY --from=builder /install /usr/local
-
-# Dependency installation is complete; serving loads the fitted model in-process.
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt -c /constraints.txt
 RUN python -m pip uninstall -y setuptools wheel && python -m pip check
 
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS runtime
+RUN apk add --no-cache python-3.11=3.11.17-r0 libgomp=16.2.0-r1 libstdc++=16.2.0-r1 ca-certificates-bundle=20260909-r2 tzdata=2026e-r0
+RUN addgroup -g 10001 app && adduser -D -H -u 10001 -G app -s /sbin/nologin app
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH LANG=C.UTF-8
+RUN python -m pip check
 WORKDIR /app
-COPY src ./src
-
-RUN chown -R app:app /app
-
-COPY docker/assemble_runtime.py /assemble_runtime.py
-RUN python /assemble_runtime.py
-
-FROM scratch AS runtime
-COPY --from=prepared /runtime /
-WORKDIR /app
-COPY --from=prepared --chown=10001:10001 /app/src ./src
+COPY --chown=10001:10001 src ./src
 USER 10001:10001
-ENV PATH=/usr/local/bin
-RUN ["/usr/local/bin/python", "-m", "pip", "check"]
-
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MLFLOW_TRACKING_URI=http://mlflow:5000 \
     MODEL_NAME=ieee_fraud_lgbm \
     API_MAX_BATCH_SIZE=500 \
     MPLCONFIGDIR=/tmp/matplotlib
-
 EXPOSE 8000
-
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
     CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status==200 else 1)"]
-
 CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]

@@ -425,3 +425,12 @@ pins in the MLflow image are aligned with the existing API serialization stack,
 and artifact-derived transitive constraints were added for reproducible Python
 resolution. Final local full suite: exit 0, 255 passed, 87.50% coverage. Remote
 validation of the corrected candidate remains pending; no Phase 6 work started.
+
+Public Wolfi APK index independently confirms Python 3.11.17-r0 is available
+without paid image access. The initial Chainguard-catalog-only comparison was
+incomplete. The selected candidate changes to a digest-pinned public Wolfi base
+with matching builder/runtime packages and venv, eliminating the experimental
+custom rootfs collector. Exact Python/native/certificate/timezone roots and
+artifact-derived Python constraints are pinned. Real compatibility/security
+validation remains pending. No vulnerable OS identity was accepted and no
+baseline semantics changed. Phase 6 remains blocked.

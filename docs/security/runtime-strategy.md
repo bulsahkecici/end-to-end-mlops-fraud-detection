@@ -82,3 +82,10 @@ This is a documented compatibility prerequisite, not a model-methodology change.
 OS apt refresh remains an upstream mutable input; every build records actual
 versions and requires runtime/scanner revalidation rather than claiming bitwise
 reproducibility from a pinned base alone.
+
+Run 36999096176 then caught an inspection-context issue: psycopg2's private
+Kerberos libraries rely on the importing extension's auditwheel RPATH. A
+standalone ldd of those private objects does not inherit that entrypoint RPATH.
+Each build-time inspection now includes only the inspected object's sibling
+library directory. No runtime LD_LIBRARY_PATH or library replacement is used;
+real psycopg2/native imports and server execution remain mandatory.

@@ -62,7 +62,13 @@ for path in sorted(Path("/usr/local").rglob("*")):
     with path.open("rb") as handle:
         if handle.read(4) != b"\x7fELF":
             continue
-    result = subprocess.run(["ldd", str(path)], capture_output=True, text=True)
+    # Auditwheel places private libraries beside each other; their entry
+    # extension supplies RPATH, which standalone ldd on a private .so lacks.
+    # Resolve that object's siblings only for this build-time inspection.
+    # This is never an environment setting in the final runtime.
+    inspection_env = os.environ.copy()
+    inspection_env["LD_LIBRARY_PATH"] = str(path.parent)
+    result = subprocess.run(["ldd", str(path)], capture_output=True, text=True, env=inspection_env)
     if "not found" in result.stdout:
         raise RuntimeError(f"Unresolved ELF dependency: {path}: {result.stdout}")
     if result.returncode and "not a dynamic executable" not in result.stderr + result.stdout:

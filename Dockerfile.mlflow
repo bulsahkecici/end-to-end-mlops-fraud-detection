@@ -1,5 +1,9 @@
 FROM python:3.11.10-slim
 
+RUN DEBIAN_FRONTEND=noninteractive apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
+    && rm -rf /var/lib/apt/lists/*
+
 # MLflow does not publish a ghcr.io/mlflow/mlflow:v2.22.5 image. Build the
 # server from the same pinned Python base and package versions as the runtime,
 # including the Postgres/S3 drivers required by the production-like profile.
@@ -8,3 +12,6 @@ RUN pip install --no-cache-dir \
     sqlalchemy==2.0.51 \
     psycopg2-binary==2.9.10 \
     boto3==1.35.90
+
+# Build tooling is unnecessary for the tracking server after installation.
+RUN python -m pip uninstall -y setuptools wheel && python -m pip check

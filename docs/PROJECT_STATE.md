@@ -356,3 +356,49 @@ checks build-tool removal after dependency copy/install and additionally checks
 base packaging removal before overlay. No build-tool ordering check was removed.
 Black initially requested formatting of that new assertion; formatted and rerun
 successfully. Remote image verification remains required.
+
+## Verified external OS blocker — 2026-10-02
+
+Fresh Trixie branch run `36996203975` at
+`03192f49cd4c08b0265ac003c9c6846ddb37fb72`, artifact `11221757189`, was downloaded
+and every job/step inspected. Gitleaks PASS (zero findings), both fresh image
+builds PASS, final-image serialization/MLflow-load/prediction/server CLI checks
+PASS, both SPDX 2.3 SBOMs PASS, artifact upload PASS. Trivy/evidence policy FAIL
+on real unaccepted OS findings, with no scanner or artifact errors.
+
+Per image: **66 findings, 58 HIGH, 8 CRITICAL, 44 OS, 22 Python, 22 reviewed
+matches, 44 unaccepted, zero stale, zero changed fix snapshots**. No setuptools
+or wheel findings remain. The reduction from the original 132 is exactly
+**66 findings / 50%** per image. All OS findings are HIGH with no reported
+Trixie fix. API immutable ID is
+`sha256:2a5d6b08e19460d01f8b59a748884832b4f558d91aaf5e62c1c1a80cc5491088`;
+MLflow ID is
+`sha256:12dac68fc14811cfb4bf75c4a0c3abf7c2599043fbd9b5e640de6302e862e668`.
+SPDX package counts are 187 API and 176 MLflow.
+
+The eight OS IDs are CVE-2025-69720 (4 package findings), CVE-2026-16742 (2),
+CVE-2026-54369 (1), CVE-2026-9538 (1), and CVE-2026-76642 / CVE-2026-78408 /
+CVE-2026-78409 / CVE-2026-78410 (9 each). They cover ncurses, systemd libraries,
+acl, perl-base and util-linux packages. No OS entries were added to the baseline.
+
+Primary Debian tracker checks confirm stable Trixie remains vulnerable and
+fixes are in testing/unstable for [ncurses](https://security-tracker.debian.org/tracker/CVE-2025-69720),
+[systemd](https://security-tracker.debian.org/tracker/CVE-2026-16742),
+[acl](https://security-tracker.debian.org/tracker/CVE-2026-54369),
+[perl](https://security-tracker.debian.org/tracker/CVE-2026-9538), and
+[util-linux](https://security-tracker.debian.org/tracker/CVE-2026-78410).
+The official trixie-backports amd64 Packages index was inspected: none of the
+17 affected binary packages has a backport. Stable apt refresh/upgrade and a
+current official stable Python base therefore do not satisfy the requested gate.
+Mixing testing/unstable core libraries, forcibly removing Essential packages, or
+redesigning the runtime image would require broader compatibility work beyond
+this scoped remediation. No such change or OS risk acceptance was performed.
+
+Final local coverage rerun after metadata cleanup: exit 0, **255 passed**, **87.50%**.
+PR #7 remains open with the verified follow-up work; its latest code CI run is
+`36996209394` (still running at this checkpoint). PR #6 remains merged as
+`d834583dafe83fd69ea2461efc13366d3a5913ef`; master security run `36994909880` failed
+before images on the digest false positive, whose validated fix is in PR #7.
+Phase 6 remains blocked and has not started. The single next scope decision is
+to authorize a separate runtime-base redesign that removes these OS packages,
+while retaining Python 3.11 and the existing model/serving contract.

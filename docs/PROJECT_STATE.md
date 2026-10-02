@@ -49,7 +49,8 @@ The default outer split remains temporal: earliest 70% train, next 15% developme
   project's product and licensing assumptions. Selecting a maintained
   S3-compatible object store is a future infrastructure decision, not a Phase 4
   implementation defect; the blocker is not expected to resolve automatically.
-- Container base/service references remain tag-based rather than digest-pinned.
+- API and MLflow bases, OS package versions and Python dependency constraints
+  are pinned. Other Compose service references retain their existing tags.
 - Synthetic runs validate plumbing only; no canonical real IEEE-CIS release metrics are recorded.
 - MLflow 2.22.5 remains pinned. The 2026-10-01 `pip-audit` result contains 54
   raw findings (28 unique advisory IDs) across runtime-reachable MLflow and
@@ -287,3 +288,242 @@ model lifecycle changes are included. The original stash object remains
 
 Final complete-suite coverage verification: exit 0, **255 passed**, **87.50%**
 coverage (75% minimum). Final unit rerun: exit 0, **234 passed**.
+
+## First remote remediation checkpoint — 2026-10-02
+
+PR #6 merged `fc7f09f7ec0c98af48a097cb1ba65f737b7f56f9` as
+`d834583dafe83fd69ea2461efc13366d3a5913ef` after normal CI run `36993627670`
+passed all three jobs (lint/type/tests/coverage, Docker, isolated synthetic E2E).
+Manual master security run `36994909880` failed on one Gitleaks false positive;
+artifact `11221143031` was downloaded and inspected. It identifies the original
+API Trivy report's verified SHA-256 on baseline line 492, not a credential.
+Build/runtime/Trivy/SBOM steps were skipped, and artifact upload passed.
+
+A focused `.gitleaks.toml` extension retains every default rule and excludes
+only that exact digest AND the exact baseline path under `generic-api-key`.
+It excludes no commits, entire paths, or other values. Checksum-verified local
+Gitleaks 8.30.1 full reachable history: PASS, zero findings. Temporary Git
+positive controls: original digest/path excluded; changed digest detected;
+same digest at another path detected, all expected exit codes observed.
+An initial directory-mode control returned a finding because it uses absolute
+paths; controls were rerun in temporary Git repositories matching the workflow.
+`git diff --check`: PASS. Only scanner configuration and this evidence note
+changed; prior code verification remains applicable. Phase 6 remains blocked.
+
+
+## Bookworm image evidence and base refresh — 2026-10-02
+
+Supplemental branch run `36995248203`, artifact `11221417110`, completed real
+fresh builds, Gitleaks PASS, final-image runtime compatibility PASS and both
+SPDX SBOMs PASS, but Trivy FAIL. Each image contains 85 findings: 72 HIGH,
+13 CRITICAL, 63 OS and 22 Python. All 22 MLflow/PyArrow entries exactly match,
+zero stale entries and zero changed fixed-version snapshots. The 63 remaining
+OS findings have no reported Bookworm fix; no OS findings were baselined.
+Setuptools/wheel findings disappeared. Reduction is 47/132 (35.6061%) per image,
+which does not meet the final gate.
+
+A minimal security prerequisite refreshes both Dockerfiles (API builder and
+runtime together) to official Python 3.11.17 slim Trixie, pinned to manifest
+index `sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51`.
+`docker buildx imagetools inspect python:3.11.17-slim-trixie` succeeded; amd64
+manifest `sha256:922f47525757de33aff59f24cdfc85f412ac4a06aa8af7c7e9028d584b7bcdeb`
+reports official source revision `cede844ace77284e32c03b61ebc35cdfc945e862`,
+created 2026-10-01. Python minor stays 3.11; MLflow stays 2.22.5; application
+pins, API libgomp1, network, MinIO and all model lifecycle semantics remain intact.
+Fresh Trixie builds and scans are pending; no OS reduction is inferred from tags.
+
+Base-refresh local verification: focused security tests 62 passed (exit 0), both
+Compose profile renders and `git diff --check` passed (exit 0). No Python source
+changed; prior full local suite remains 255 passed / 87.50%. Local Docker builds
+remain NOT RUN because Colima is stopped; required fresh-image verification is
+performed by remote evidence and normal CI before merge.
+
+
+Trixie branch evidence run `36995801604` failed at API build `pip check` before
+runtime/scans: the new base includes `packaging 26.3`; the prefix-installed
+MLflow-compatible `packaging 24.2` overlay left the base's old dist-info behind.
+The builder log confirms its dependency resolver selected 24.2; MLflow-skinny
+2.22.5 requires packaging<25. The smallest fix removes base packaging before
+copying the complete builder prefix, restoring one compatible package/metadata
+copy without changing requirements or bypassing pip check. MLflow's single-stage
+pip install already replaces base dependencies normally. Fresh builds remain
+required; no findings are inferred from the failed run.
+
+Prefix-cleanup verification: focused security tests 62 passed, full unit rerun
+234 passed, Ruff, Black and Mypy passed, both Compose profiles and diff check
+passed (all final exit 0). The existing policy test initially failed by matching
+the new packaging uninstall instead of setuptools/wheel; it now explicitly
+checks build-tool removal after dependency copy/install and additionally checks
+base packaging removal before overlay. No build-tool ordering check was removed.
+Black initially requested formatting of that new assertion; formatted and rerun
+successfully. Remote image verification remains required.
+
+## Verified external OS blocker — 2026-10-02
+
+Fresh Trixie branch run `36996203975` at
+`03192f49cd4c08b0265ac003c9c6846ddb37fb72`, artifact `11221757189`, was downloaded
+and every job/step inspected. Gitleaks PASS (zero findings), both fresh image
+builds PASS, final-image serialization/MLflow-load/prediction/server CLI checks
+PASS, both SPDX 2.3 SBOMs PASS, artifact upload PASS. Trivy/evidence policy FAIL
+on real unaccepted OS findings, with no scanner or artifact errors.
+
+Per image: **66 findings, 58 HIGH, 8 CRITICAL, 44 OS, 22 Python, 22 reviewed
+matches, 44 unaccepted, zero stale, zero changed fix snapshots**. No setuptools
+or wheel findings remain. The reduction from the original 132 is exactly
+**66 findings / 50%** per image. All OS findings are HIGH with no reported
+Trixie fix. API immutable ID is
+`sha256:2a5d6b08e19460d01f8b59a748884832b4f558d91aaf5e62c1c1a80cc5491088`;
+MLflow ID is
+`sha256:12dac68fc14811cfb4bf75c4a0c3abf7c2599043fbd9b5e640de6302e862e668`.
+SPDX package counts are 187 API and 176 MLflow.
+
+The eight OS IDs are CVE-2025-69720 (4 package findings), CVE-2026-16742 (2),
+CVE-2026-54369 (1), CVE-2026-9538 (1), and CVE-2026-76642 / CVE-2026-78408 /
+CVE-2026-78409 / CVE-2026-78410 (9 each). They cover ncurses, systemd libraries,
+acl, perl-base and util-linux packages. No OS entries were added to the baseline.
+
+Primary Debian tracker checks confirm stable Trixie remains vulnerable and
+fixes are in testing/unstable for [ncurses](https://security-tracker.debian.org/tracker/CVE-2025-69720),
+[systemd](https://security-tracker.debian.org/tracker/CVE-2026-16742),
+[acl](https://security-tracker.debian.org/tracker/CVE-2026-54369),
+[perl](https://security-tracker.debian.org/tracker/CVE-2026-9538), and
+[util-linux](https://security-tracker.debian.org/tracker/CVE-2026-78410).
+The official trixie-backports amd64 Packages index was inspected: none of the
+17 affected binary packages has a backport. Stable apt refresh/upgrade and a
+current official stable Python base therefore do not satisfy the requested gate.
+Mixing testing/unstable core libraries, forcibly removing Essential packages, or
+redesigning the runtime image would require broader compatibility work beyond
+this scoped remediation. No such change or OS risk acceptance was performed.
+
+Final local coverage rerun after metadata cleanup: exit 0, **255 passed**, **87.50%**.
+PR #7 remains open with the verified follow-up work; its latest code CI run is
+`36996209394` (still running at this checkpoint). PR #6 remains merged as
+`d834583dafe83fd69ea2461efc13366d3a5913ef`; master security run `36994909880` failed
+before images on the digest false positive, whose validated fix is in PR #7.
+Phase 6 remains blocked and has not started. The single next scope decision is
+to authorize a separate runtime-base redesign that removes these OS packages,
+while retaining Python 3.11 and the existing model/serving contract.
+
+## Scoped runtime redesign in progress — 2026-10-02
+
+User authorized a runtime redesign after comparing safer alternatives. PR #7
+head 0f57c602b0bccd97f47e01d17e5ba81fb4f1c814 passed all three normal CI jobs in
+run 36996881845; it remains unmerged pending runtime selection. Requested artifact
+11221757189 was independently downloaded again: identical 44 OS tuples across
+17 packages per image. Exact inventory and strategy comparison are in
+`docs/security/`. Dedicated branch `hardening/phase-5-minimal-runtime` evaluates
+an ELF-closure rootfs from the pinned official Trixie builder, preserving the
+complete CPython installation and package provenance. Runtime and fresh security
+validation are pending remote execution; no successful redesign or new count is
+claimed. No OS risk is accepted. Phase 6 remains blocked; stash is untouched.
+
+Initial redesign run 36998564053 failed at the ELF closure on the official slim
+base's already unavailable Tkinter extension (missing Tcl/Tk), before runtime
+or scan steps; Gitleaks and upload passed. The explicit headless exception
+rejects unexpected missing libraries and records the excluded broken extension.
+No supported stdlib extension is deleted for scanner reduction. Native-model
+pins in the MLflow image are aligned with the existing API serialization stack,
+and artifact-derived transitive constraints were added for reproducible Python
+resolution. Final local full suite: exit 0, 255 passed, 87.50% coverage. Remote
+validation of the corrected candidate remains pending; no Phase 6 work started.
+
+Public Wolfi APK index independently confirms Python 3.11.17-r0 is available
+without paid image access. The initial Chainguard-catalog-only comparison was
+incomplete. The selected candidate changes to a digest-pinned public Wolfi base
+with matching builder/runtime packages and venv, eliminating the experimental
+custom rootfs collector. Exact Python/native/certificate/timezone roots and
+artifact-derived Python constraints are pinned. Real compatibility/security
+validation remains pending. No vulnerable OS identity was accepted and no
+baseline semantics changed. Phase 6 remains blocked.
+
+Independent inspection rejected the custom-rootfs comparison run's apparent
+security success (36999526356, artifact 11223635441): Trivy detected no OS and
+scanned only Python, although Syft inventoried retained Debian libraries. No OS
+remediation success is claimed from that run. The evidence runner now requests
+all OS packages and reconciles Trivy coverage against Syft exact OS identities;
+unknown OS or missing inventory fails closed. All 68 focused security tests pass
+(exit 0), including six new coverage regressions. Wolfi real builds and initial
+runtime checks passed in run 37000028810; its full lifecycle/scans and final
+strengthened-policy rerun remain pending. Baseline risk identities are unchanged.
+
+Wolfi run 37000028810 / artifact 11223930869 passed real final-container imports,
+cross-image API-created model loading, serialization/pyfunc prediction, native
+stdlib/certificates/timezone, both live MLflow server checks and nine-step
+non-root API lifecycle. Trivy recognized Wolfi and scanned 38 APK packages with
+zero OS findings. Each image had 26 Python findings: 22 reviewed, four new
+unreviewed in pip's private vendors, no stale entries. Latest pip 26.2.1 still
+contains those vendors. Final runtime now validates dependencies then uninstalls
+pip itself by its supported operation; no OS-owned package files are deleted.
+The no-installer runtime must pass all remote checks again. OS coverage matches
+full Debian epoch/release identities and APK versions. All 71 focused security
+tests pass. No new Python or OS finding is accepted. Phase 6 remains blocked.
+
+Both-image OS inventory coverage was independently validated against the original
+Debian artifact (88 API / 87 MLflow exact package identities) and first Wolfi
+artifact (38 / 38), all PASS with epoch/release-aware reconciliation. All 38
+actual APK package versions are now locked, including the glibc-2.44 2.44-r7
+provider selected by the pinned base; builder and final runtime use the same lock.
+This prevents transitive OS provider drift. The first API/native model stack is
+otherwise unchanged, with both-image Python constraints pinned as documented.
+
+
+## Fully locked runtime branch verification — 2026-10-02
+
+Selected strategy C is digest-pinned public Wolfi with upstream Python 3.11.17,
+all 38 native APK versions pinned and complete application Python constraints.
+[Runtime comparison](security/runtime-strategy.md) and the exact 44-row/17-package
+[original inventory](security/trixie-os-inventory.csv) document the decision.
+PR #7's Trixie runtime is superseded; its Gitleaks fix and follow-up evidence are
+retained in PR #8. No change to application inference, model methodology,
+registry/deployment lifecycle, authentication/network architecture, MLflow major
+version, MinIO, or vulnerability risk baseline is included.
+
+Authoritative branch run **37001197837**, source
+`a3e4fef55681277dd23e728b983c9224e5aa3a25`, artifact **11223908196**, completed
+successfully. It was independently downloaded and every report inspected:
+
+- Gitleaks 8.30.1: full history, zero findings, PASS.
+- Fresh API and MLflow builds: PASS; pip check in builder and final layer before
+  pip removal, then both final runtimes prove no pip/setuptools/wheel distribution.
+- Both-image native imports, trust store, Europe/Istanbul timezone, curses
+  terminfo, UUID paths, joblib/MLflow pyfunc roundtrip and an API-created model
+  loaded in both images: PASS. MLflow 2.22.5 live server health: PASS in both.
+- Non-root API container's nine-step synthetic training/candidate/promotion/
+  deployment/startup/health/immutable readiness/single and batch prediction:
+  all PASS. These are plumbing checks, not IEEE-CIS performance.
+- Checksum-pinned Trivy 0.69.3: ACCEPTED in both; **22 findings/image**, **14 HIGH**,
+  **8 CRITICAL**, **0 OS**, **22 Python**, **22 reviewed**, **0 unreviewed**,
+  **0 stale**, **0 changed fixed-version snapshots/newly fixable findings**.
+- OS coverage: recognized Wolfi; **38 Trivy / 38 Syft** exact installed OS
+  package identities match in each image. Syft 1.52.0 SPDX 2.3: PASS;
+  129 API packages and 119 MLflow packages.
+- API immutable ID:
+  `sha256:e1970703e50b299f5c57f6b869bba033579d548b6a251672023003286abaeb89`.
+- MLflow immutable ID:
+  `sha256:eb25d3df7a281828653bf88cff206def5aa5111b718c83e0cd6a1a10888d3bce`.
+- Trivy-reported sizes: 993,807,872 API / 970,569,216 MLflow bytes.
+
+Per-image HIGH/CRITICAL progression: **132 → 85 → 66 → 22**.
+OS progression: **107 → 63 → 44 → 0**. The final 22 are explicitly reviewed
+MLflow/PyArrow residuals expiring 2026-11-01, not remediated vulnerabilities.
+
+Final local verification (all final commands exit 0): Ruff and Black across
+src/tests/scripts/docker; Mypy src; 71 focused security tests; 243 unit tests;
+21 integration tests; complete 264-test coverage suite at **87.50%** (75% floor);
+virtualenv pip check; both Compose profile renders; workflow YAML parse; exact
+reviewed Python audit (28 unique advisories across 2 packages); diff check.
+The first make audit attempt exited 2 because system python was absent; rerunning
+with the repository venv on PATH passed. CSV CRLF initially caused diff-check
+exit 2; LF normalization passed. Initial Ruff import/length errors were fixed.
+All earlier container failures and the invalid custom-rootfs security green are
+explicitly documented above and in the decision record.
+
+Local docker info exited 1: Colima is stopped. Local container builds/Trivy/Syft
+are NOT RUN; GitHub Actions provides authoritative evidence. Complete
+production-like MinIO/NGINX E2E is NOT RUN and remains upstream-blocked; no
+production-stack success is claimed. Runtime tests cover Linux amd64; arm64
+execution is not claimed. Stash remains
+`3384b5a200c73bd07a36dabb11f274280d72ca20`.
+
+Normal PR CI and post-merge master security evidence remain pending at this
+checkpoint. Phase 6 remains blocked until those last gates pass and is not started.

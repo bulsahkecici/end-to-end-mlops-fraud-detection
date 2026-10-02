@@ -88,6 +88,8 @@ def test_image_evidence_scans_immutable_ids_and_writes_spdx(
     assert summary["images"][0]["image_id"] == image_id
     trivy_command = next(command for command in commands if command[:2] == ["trivy", "image"])
     syft_command = next(command for command in commands if command[:2] == ["syft", "scan"])
+    assert "--list-all-pkgs" in trivy_command
+    assert summary["images"][0]["os_coverage"]["status"] == "PASS"
     assert trivy_command[-1] == image_id
     assert syft_command[2] == image_id
 
@@ -207,8 +209,11 @@ def _report(vulnerabilities, image_id=None):
     return {
         "SchemaVersion": 2,
         "ArtifactName": image_id,
-        "Metadata": {"ImageID": image_id},
-        "Results": [{"Vulnerabilities": vulnerabilities}],
+        "Metadata": {"ImageID": image_id, "OS": {"Family": "debian", "Name": "13.7"}},
+        "Results": [
+            {"Class": "os-pkgs", "Packages": [{"Name": "libc6", "Version": "2.41-12"}]},
+            {"Class": "lang-pkgs", "Vulnerabilities": vulnerabilities},
+        ],
     }
 
 
@@ -363,6 +368,9 @@ def test_image_identity_mismatch_fails():
         "identity",
         "exit_mismatch",
         "image_resolution",
+        "undetected_os",
+        "missing_os_result",
+        "missing_os_package",
         "none",
     ],
 )
@@ -384,6 +392,12 @@ def test_execution_errors_never_become_accepted(tmp_path, monkeypatch, failure):
         if command[0] == "trivy":
             path = Path(command[command.index("--output") + 1])
             payload = _report([_vulnerability()], "wrong" if failure == "identity" else image_id)
+            if failure == "undetected_os":
+                payload["Metadata"]["OS"] = {"Family": "none", "Name": ""}
+            elif failure == "missing_os_result":
+                payload["Results"] = payload["Results"][1:]
+            elif failure == "missing_os_package":
+                payload["Results"][0]["Packages"] = [{"Name": "libc6", "Version": "wrong"}]
             path.write_text("{" if failure == "malformed" else json.dumps(payload))
             code = 7 if failure == "scanner" else 0 if failure == "exit_mismatch" else 20
             return _completed(command, returncode=code)
@@ -403,15 +417,24 @@ def test_execution_errors_never_become_accepted(tmp_path, monkeypatch, failure):
 
 def test_runtime_build_tool_policy():
     root = Path(__file__).resolve().parents[2]
+    package_pins = (root / "docker/wolfi.packages").read_text()
     for filename in ("Dockerfile.api", "Dockerfile.mlflow"):
-        runtime = (root / filename).read_text().split("FROM ")[-1]
-        assert "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y" in runtime
-        assert "rm -rf /var/lib/apt/lists/*" in runtime
-        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in runtime
-        assert runtime.index("pip uninstall") > runtime.index(
-            "COPY --from=builder" if filename == "Dockerfile.api" else "pip install"
-        )
-        assert "build-essential" not in runtime
+        contents = (root / filename).read_text()
+        builder, runtime = contents.rsplit("FROM ", 1)
+        assert "wolfi-base:latest@sha256:" in runtime
+        assert "COPY docker/wolfi.packages /packages" in runtime
+        assert "RUN xargs apk add --no-cache < /packages" in runtime
+        assert "python-3.11=3.11.17-r0" in package_pins
+        assert "libgomp=16.2.0-r1" in package_pins
+        assert "libstdc++=16.2.0-r1" in package_pins
+        assert "ca-certificates-bundle=20260909-r2" in package_pins
+        assert "tzdata=2026e-r0" in package_pins
+        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in builder
+        assert builder.index("pip uninstall -y setuptools wheel") > builder.index("pip install")
+        assert "--only-binary=:all:" in builder
+        assert "COPY --from=builder /opt/venv /opt/venv" in runtime
+        assert "RUN python -m pip check && python -m pip uninstall -y pip" in runtime
+        assert "build-essential" not in contents
     assert "pyarrow==17.0.0" in (root / "requirements.txt").read_text()
 
 
@@ -461,7 +484,17 @@ def _sbom():
         "dataLicense": "CC0-1.0",
         "documentNamespace": "https://example.test/sbom",
         "creationInfo": {"creators": ["Tool: syft-1.52.0"]},
-        "packages": [{"name": "mlflow", "SPDXID": "SPDXRef-Package-mlflow"}],
+        "packages": [
+            {"name": "mlflow", "SPDXID": "SPDXRef-Package-mlflow"},
+            {
+                "name": "libc6",
+                "versionInfo": "2.41-12",
+                "SPDXID": "SPDXRef-Package-libc6",
+                "externalRefs": [
+                    {"referenceType": "purl", "referenceLocator": "pkg:deb/debian/libc6@2.41-12"}
+                ],
+            },
+        ],
     }
 
 
@@ -478,3 +511,40 @@ def test_secret_scan_rejects_malformed_or_inconsistent_report(tmp_path, monkeypa
     assert security_evidence.run_secret_scan(tmp_path, tmp_path / "evidence", "revision") == 2
     summary = json.loads((tmp_path / "evidence/gitleaks-summary.json").read_text())
     assert summary["status"] == "ERROR"
+
+
+@pytest.mark.parametrize("failure", ["empty_inventory", "missing_version"])
+def test_os_coverage_rejects_incomplete_sbom_inventory(failure):
+    sbom = _sbom()
+    if failure == "empty_inventory":
+        sbom["packages"] = sbom["packages"][:1]
+    else:
+        del sbom["packages"][1]["versionInfo"]
+    with pytest.raises(security_evidence.EvidenceError):
+        security_evidence.validate_os_coverage(_report([]), sbom)
+
+
+def test_os_coverage_accepts_wolfi_with_exact_package_identity():
+    report = _report([])
+    report["Metadata"]["OS"] = {"Family": "wolfi", "Name": "20230201"}
+    sbom = _sbom()
+    sbom["packages"][1]["externalRefs"][0]["referenceLocator"] = "pkg:apk/wolfi/libc6@2.41-12"
+    assert security_evidence.validate_os_coverage(report, sbom)["status"] == "PASS"
+
+
+@pytest.mark.parametrize(
+    "package,expected",
+    [
+        (
+            {"Name": "libc6", "Version": "2.41", "Release": "12+deb13u4"},
+            ("libc6", "2.41-12+deb13u4"),
+        ),
+        (
+            {"Name": "bsdutils", "Version": "2.41.5", "Release": "0+deb13u1", "Epoch": 1},
+            ("bsdutils", "1:2.41.5-0+deb13u1"),
+        ),
+        ({"Name": "glibc", "Version": "2.43-r13"}, ("glibc", "2.43-r13")),
+    ],
+)
+def test_os_coverage_preserves_distro_release_and_epoch(package, expected):
+    assert security_evidence._os_package_identity(package) == expected

@@ -111,6 +111,29 @@ jobs:
           docker run --rm "ieee-fraud-mlflow:security-${GITHUB_SHA}" python -c 'from importlib import metadata; import mlflow, psycopg2, boto3; assert metadata.version("mlflow") == "2.22.5"'
           docker run --rm "ieee-fraud-mlflow:security-${GITHUB_SHA}" mlflow server --help
 
+      - name: Verify both final runtimes and live API lifecycle
+        run: |
+          mkdir -p "${RUNNER_TEMP}/runtime-model"
+          chmod 777 "${RUNNER_TEMP}/runtime-model"
+          for role in api mlflow; do
+            docker run --rm -i --workdir /app \
+              -e SMOKE_MODEL_DIR=/shared \
+              -v "${RUNNER_TEMP}/runtime-model:/shared" \
+              -v "${GITHUB_WORKSPACE}/src:/app/src:ro" \
+              -v "${GITHUB_WORKSPACE}/docker/runtime_smoke.py:/runtime_smoke.py:ro" \
+              "ieee-fraud-${role}:security-${GITHUB_SHA}" python /runtime_smoke.py
+            docker run --rm "ieee-fraud-${role}:security-${GITHUB_SHA}" apk info -v > "${RUNNER_TEMP}/security-evidence/${role}-runtime-packages.txt"
+            docker image inspect "ieee-fraud-${role}:security-${GITHUB_SHA}" > "${RUNNER_TEMP}/security-evidence/${role}-image-inspect.json"
+          done
+          docker run --rm --workdir /app \
+            --tmpfs /app/artifacts:uid=10001,gid=10001 \
+            --tmpfs /app/data:uid=10001,gid=10001 \
+            --tmpfs /app/reports:uid=10001,gid=10001 \
+            --tmpfs /app/mlruns:uid=10001,gid=10001 \
+            -e MLFLOW_TRACKING_URI=sqlite:////tmp/runtime-e2e.db \
+            -v "${GITHUB_WORKSPACE}/scripts:/app/scripts:ro" \
+            ieee-fraud-api:security-${GITHUB_SHA} python scripts/validate_e2e.py
+
       - name: Scan exact image IDs and generate SPDX JSON SBOMs
         run: |
           python scripts/security_evidence.py images \

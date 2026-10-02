@@ -200,10 +200,14 @@ findings. Artifact `11218502716` contains 132 HIGH/CRITICAL findings per image
 There are 75 unique vulnerability IDs across both images. API PyArrow is
 17.0.0; MLflow's compatible transitive resolution was 19.0.1.
 
-Both final runtime stages now refresh apt indexes and perform a noninteractive
+The first remediation runtime stages refreshed apt indexes and perform a noninteractive
 Debian package upgrade, preserving API's libgomp1 and cleaning apt lists.
-The Python 3.11.10 base tag is retained consistently; digest pinning is deferred
-because an authoritative immutable digest was not established in this change.
+The original Python 3.11.10 Bookworm base was insufficient: fresh upgrades
+left 63 unaccepted OS findings per image (run `36995248203`). Both Dockerfiles
+then used official Python 3.11.17 slim Trixie, consistently pinned to manifest
+index `sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51`.
+The registry manifest was inspected directly. This scoped base refresh retains
+Python 3.11 and every application dependency pin; fresh evidence is still required.
 Setuptools and wheel are removed after dependency installation, followed by
 `pip check`. They are unpinned packaging tools, not application dependencies;
 inspection found no direct runtime imports in the application, MLflow,
@@ -245,3 +249,29 @@ MLflow/PyArrow residual risk is eligible for final acceptance. The old reports d
 22 matched and 110 unreviewed findings per image. No OS reduction is claimed.
 Phase 6 remains blocked until this remediation is verified; MLflow migration,
 MinIO replacement, drift, authentication, and model lifecycle changes are excluded.
+
+
+## Selected production runtime redesign
+
+The intermediate Trixie evidence still had 44 unaccepted OS findings across
+17 packages per image. The final design uses public digest-pinned Wolfi,
+upstream Python 3.11.17, an exact 38-package OS lock, matched venv builder/runtime
+and frozen application Python constraints. No bespoke distro compilation,
+Debian unstable mixing, custom rootfs collector, or inference change remains.
+The MLflow image's native model stack is aligned with the unchanged API stack
+for the requested cross-image artifact compatibility. No OS finding is accepted.
+
+Final layers run pip check then uninstall pip, while builders retain installation
+tools. Real containers prove imports/native dependencies, certificate trust,
+timezone, serialization, cross-image pyfunc, live MLflow health and the non-root
+API training/promotion/deployment/readiness/prediction lifecycle. Synthetic
+checks establish plumbing only. Trivy must recognize the OS and cover every
+Syft OS identity; the gate now rejects the independently discovered unknown-OS
+false green from an abandoned custom-rootfs comparison.
+
+Fully locked branch run 37001197837 / artifact 11223908196 passed every runtime
+and security step. Each image has 22 exact reviewed Python findings (14 HIGH,
+8 CRITICAL), zero OS/unreviewed/stale findings and zero changed fix snapshots;
+38/38 OS coverage passes. The reviewed baseline is unchanged. Final merge/master
+CI and evidence status are recorded in PROJECT_STATE.md; Phase 6 is not started.
+The original MinIO-dependent production-stack limitation remains independent.

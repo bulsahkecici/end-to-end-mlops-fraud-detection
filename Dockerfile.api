@@ -1,44 +1,32 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11.10-slim AS builder
-
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS builder
+COPY docker/wolfi.packages /packages
+RUN xargs apk add --no-cache < /packages
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
 WORKDIR /build
 COPY requirements.txt .
-RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
-
-FROM python:3.11.10-slim AS runtime
-
-# libgomp1 provides libgomp.so.1, the OpenMP runtime lightgbm's compiled
-# wheel dynamically links against — absent from the slim base image, so
-# without it the import fails at container start (not at build time).
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends libgomp1 \
-    && rm -rf /var/lib/apt/lists/*
-
-# Pin a fixed, non-root uid/gid so file ownership is deterministic across builds.
-RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
-
-COPY --from=builder /install /usr/local
-
-# Dependency installation is complete; serving loads the fitted model in-process.
+COPY docker/api.constraints /constraints.txt
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt -c /constraints.txt
 RUN python -m pip uninstall -y setuptools wheel && python -m pip check
 
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS runtime
+COPY docker/wolfi.packages /packages
+RUN xargs apk add --no-cache < /packages
+RUN addgroup -g 10001 app && adduser -D -H -u 10001 -G app -s /sbin/nologin app
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH LANG=C.UTF-8
+RUN python -m pip check && python -m pip uninstall -y pip
 WORKDIR /app
-COPY src ./src
-
-RUN chown -R app:app /app
-USER app
-
+COPY --chown=10001:10001 src ./src
+USER 10001:10001
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     MLFLOW_TRACKING_URI=http://mlflow:5000 \
     MODEL_NAME=ieee_fraud_lgbm \
     API_MAX_BATCH_SIZE=500 \
     MPLCONFIGDIR=/tmp/matplotlib
-
 EXPOSE 8000
-
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status==200 else 1)"
-
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status==200 else 1)"]
 CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]

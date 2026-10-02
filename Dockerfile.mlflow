@@ -1,17 +1,18 @@
-FROM python:3.11.10-slim
-
-RUN DEBIAN_FRONTEND=noninteractive apt-get update \
-    && DEBIAN_FRONTEND=noninteractive apt-get upgrade -y \
-    && rm -rf /var/lib/apt/lists/*
-
-# MLflow does not publish a ghcr.io/mlflow/mlflow:v2.22.5 image. Build the
-# server from the same pinned Python base and package versions as the runtime,
-# including the Postgres/S3 drivers required by the production-like profile.
-RUN pip install --no-cache-dir \
-    mlflow==2.22.5 \
-    sqlalchemy==2.0.51 \
-    psycopg2-binary==2.9.10 \
-    boto3==1.35.90
-
-# Build tooling is unnecessary for the tracking server after installation.
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS builder
+COPY docker/wolfi.packages /packages
+RUN xargs apk add --no-cache < /packages
+RUN python3.11 -m venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH
+COPY docker/mlflow.constraints /constraints.txt
+RUN pip install --no-cache-dir --only-binary=:all: -c /constraints.txt \
+    mlflow==2.22.5 sqlalchemy==2.0.51 psycopg2-binary==2.9.10 boto3==1.35.90 \
+    lightgbm==4.6.0 numpy==2.0.2 pandas==2.2.3 scikit-learn==1.5.2 joblib==1.4.2
 RUN python -m pip uninstall -y setuptools wheel && python -m pip check
+
+FROM cgr.dev/chainguard/wolfi-base:latest@sha256:824f77df45397eb954dfb963db255907ee8842e3446353ce93d688e5e862f51d AS runtime
+COPY docker/wolfi.packages /packages
+RUN xargs apk add --no-cache < /packages
+COPY --from=builder /opt/venv /opt/venv
+ENV PATH=/opt/venv/bin:$PATH LANG=C.UTF-8 PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+RUN python -m pip check && python -m pip uninstall -y pip
+CMD ["python"]

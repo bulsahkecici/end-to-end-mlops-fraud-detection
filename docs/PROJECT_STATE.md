@@ -1,15 +1,16 @@
 # Project state
 
-- **Current phase:** POST-PHASE-5 container security remediation; Phase 5
-  Monitoring + Security Slices 1–3 remain implemented. Deterministic drift and
-  repeatable security evidence are retained; delayed-label monitoring is deferred.
+- **Current phase:** PHASE 5 SECURITY REMEDIATION VERIFIED. Phase 6 may start
+  on explicit instruction; no Phase 6 work has started. Monitoring + Security
+  Slices 1–3 and the verified runtime redesign are complete; delayed-label
+  monitoring remains deferred.
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
 - **Merged Phase 1 PR commit:** `e51594d2f9f93832afcc046d33098e2df69bb680`
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next authorized work:** POST-PHASE-5 container security remediation;
-  PHASE 6 remains blocked until remediation is verified
+- **Next authorized work:** Await explicit Phase 6 instructions. The security
+  gate is clear; the independent MinIO production-stack blocker remains recorded.
 
 ## Canonical architecture
 
@@ -527,3 +528,60 @@ execution is not claimed. Stash remains
 
 Normal PR CI and post-merge master security evidence remain pending at this
 checkpoint. Phase 6 remains blocked until those last gates pass and is not started.
+
+
+## Final master security-remediation verification — 2026-10-02
+
+PR #8 final head `2e7eab7db8cea36f72de21f07de257fe3ea4fae3` passed all three
+normal CI jobs in **37002063471** and merged as
+**`31449e27bace2a4091fa97e6f5cd04fe29c0d9b6`**. PR #7 was closed, unmerged,
+as superseded: its Trixie runtime is replaced by Wolfi, while its exact Gitleaks
+fix and evidence follow-up are included in PR #8. PR #6 remains merged as
+`d834583dafe83fd69ea2461efc13366d3a5913ef`.
+
+Fresh **master CI 37003091466** passed all three jobs: lint/type/tests/coverage,
+Docker, and isolated synthetic lifecycle E2E. Fresh **master security run
+37003134524**, source **31449e27bace2a4091fa97e6f5cd04fe29c0d9b6**, artifact
+**11225255513**, passed every build, runtime, tool, scan, SBOM and upload step.
+The artifact was independently downloaded and evaluated again with the current
+exact baseline and OS-coverage validator; report identities/summary decisions
+match, and Gitleaks's full-history report is empty.
+
+Each image: **22 total HIGH/CRITICAL findings, 14 HIGH, 8 CRITICAL, 0 OS,
+22 Python, 22 exact reviewed matches, 0 unaccepted, 0 stale reviews,
+0 changed fixed-version snapshots / newly fixable findings**. No OS identity or
+new Python identity was added to the unchanged reviewed baseline. This is
+ACCEPTED residual risk, not vulnerability-free performance or a clean Trivy
+finding count. Checksum-pinned tool versions remain Gitleaks 8.30.1, Trivy 0.69.3
+and Syft 1.52.0. Both SPDX 2.3 documents pass; all **38/38** OS identities match
+in each image. SPDX package counts are 129 API / 119 MLflow.
+
+Final master immutable image IDs:
+
+- API: `sha256:9ba7e05ab04e8f85ac0bfeaa29a2cac0bf0852ec0d1b7c697801ad72b5839d71`.
+- MLflow: `sha256:7c3329eb8c4d0399c4ef28840d332ea4e5dcff511c80c5994ecc6fcbd06c35ed`.
+
+Trivy-reported sizes are 993,807,872 API / 970,569,216 MLflow bytes. Original
+sizes were 1,048,168,448 / 998,974,464 bytes. Per-image vulnerability progression
+is **132 → 85 → 66 → 22**, with OS **107 → 63 → 44 → 0**. The redesigned runtime
+eliminates the 44 unaccepted OS findings without accepting them. The retained
+22 MLflow/PyArrow risks expire 2026-11-01 and require continued network containment.
+
+All requested native/model/API/MLflow runtime checks pass on Linux amd64,
+including cross-image loading and real API health/readiness/prediction without
+runtime pip/setuptools/wheel. Both build stages and final layers performed pip
+check before installer removal. Local final verification is 264 tests at 87.50%
+coverage, 243 unit / 21 integration, 71 focused security cases, passing lint,
+format, type, dependency audit, Compose and diff checks as recorded above.
+Local Docker checks were NOT RUN because Colima is stopped; remote checks are
+authoritative. The complete MinIO/Postgres/S3/NGINX production-like lifecycle
+remains NOT RUN/upstream-blocked, independently of the completed security gate.
+Synthetic results are plumbing evidence only. No arm64 execution is claimed.
+
+This completion record changes documentation only; production/runtime/evidence
+source remains identical to verified master 31449e27bace2a4091fa97e6f5cd04fe29c0d9b6.
+No Phase 6 work started. Original stash remains
+`3384b5a200c73bd07a36dabb11f274280d72ca20` and was never applied or mutated.
+
+**PHASE 5 SECURITY REMEDIATION VERIFIED.**
+**PHASE 6 MAY START.**

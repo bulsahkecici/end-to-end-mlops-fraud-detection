@@ -133,3 +133,16 @@ runner and scanner databases may change. Intentional base/package refreshes must
 repeat native/cross-image/live-service tests, normal CI, Gitleaks, SPDX and the
 unchanged exact-baseline plus OS-coverage gates. APK/shell remain ordinary distro
 components with measured coverage; the design makes no claim that they are absent.
+
+
+## Final master evidence
+
+PR #8 merged as 31449e27bace2a4091fa97e6f5cd04fe29c0d9b6 after all normal PR CI
+jobs passed in 37002063471. PR #7 is closed as superseded. Master normal CI
+37003091466 and fresh runtime/security run 37003134524 both pass. Artifact
+11225255513 was independently inspected: each image retains 22 exact reviewed
+Python findings (14 HIGH / 8 CRITICAL), zero OS/unreviewed/stale/changed-fix
+findings, full 38/38 OS coverage, valid SPDX and zero Gitleaks findings. Final
+Trivy-reported sizes are 993,807,872 / 970,569,216 bytes; exact IDs and command
+results are in PROJECT_STATE.md. No new risk acceptance is needed. Phase 6 has
+not started; the security gate is verified.

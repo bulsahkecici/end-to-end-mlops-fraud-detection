@@ -70,16 +70,12 @@ The runtime is digest-pinned Wolfi/Python 3.11.17 with MLflow 2.22.5 and 38 lock
 
 See [canonical reproduction guide](canonical-release.md), [configuration](../releases/ieee-cis-v1/canonical_config.json), [release manifest](../releases/ieee-cis-v1/release_manifest.json) and [security evidence](security/runtime-strategy.md). File, split, configuration, model, promotion, deployment and final-report identities are cross-checked by `python -m scripts.verify_canonical_release`. Exact floating-point results can depend on architecture/thread/library implementation; source and row identities must match, and new results must remain separately labelled reproductions.
 
+## Release identity and licensing
 
-## Explicit Phase 6 completion exception — 2026-10-02
+The annotated [`ieee-cis-v1` release](https://github.com/bulsahkecici/end-to-end-mlops-fraud-detection/releases/tag/ieee-cis-v1) targets commit `243212ce211ceedb02e7230a53f4017b33d3decb`. Training source and pre-final review commits remain separately recorded in the immutable evidence manifest.
 
-**Production-like E2E = NOT VERIFIED.** Reason: **unavailable legacy Community
-MinIO container distribution**; existing `minio/minio` repository/image is
-unavailable/access denied. Workflow `37009722147` is preserved as failed
-evidence. This is an external infrastructure limitation. The user explicitly
-authorized Phase 6 closure with this limitation retained; the exception does
-not mark that workflow PASS or establish production readiness for the full stack.
-Local-lite real IEEE-CIS lifecycle is verified; canonical release evidence
-remains valid. No MinIO replacement, AIStor substitution, infrastructure redesign,
-validator weakening, model/evaluation change or final-test selection rerun is
-authorized by this exception.
+Repository source code is [MIT licensed](../LICENSE), copyright Bulşah Keçici. IEEE-CIS data is historical competition data governed by its own [Kaggle terms](https://www.kaggle.com/competitions/ieee-fraud-detection/rules); it and the private canonical model binary are not redistributed. Source licensing does not grant rights to those artifacts.
+
+**Production-like E2E = NOT VERIFIED:** legacy Community `minio/minio` distribution is unavailable/access denied; failed workflow `37009722147` remains the evidence. The verified local-lite real-data lifecycle does not establish production readiness for that stack.
+
+Canonical deployment identity: `20261002T125321465784Z-4cf8f6d7fe324477b6f25ae0bfa4e886`, immutable version `1`, run `a7d516e70f714caeb67f35bd2c30762f`. Prometheus exposes runtime request/inference metrics; Gitleaks, Trivy and Syft provide secret, vulnerability and SPDX evidence. [Monitoring](monitoring.md), [deployment](deployment.md).

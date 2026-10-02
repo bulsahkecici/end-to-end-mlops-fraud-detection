@@ -57,7 +57,7 @@ API and MLflow containers use digest-pinned public Wolfi, Python 3.11.17, identi
 
 Request middleware provides bounded bodies, optional API-key authentication, request IDs, redacted structured logging and Prometheus counters. Offline drift uses reference-derived bins, bounded categories, deterministic metrics and supplied provenance. Live prediction logging, delayed-label performance monitoring and alerts remain deferred.
 
-Canonical release traceability is: raw file SHA-256 → dataset fingerprint → split fingerprints → committed config → training commit/run → immutable model version → candidate → frozen promotion gate → champion → deployment event/history → immutable readiness → single explicit final-test report → safe release manifest. [Reproduction guide](canonical-release.md) gives executable commands; `scripts.verify_canonical_release` rejects mismatched identities. Private artifacts are retained locally and are not GitHub release attachments.
+Canonical release traceability is: raw file SHA-256 → dataset fingerprint → split fingerprints → committed config → training commit/run → immutable model version → candidate → frozen promotion gate → champion → deployment event/history → immutable readiness → single explicit final-test report → safe release manifest → annotated `ieee-cis-v1` tag (`243212ce211ceedb02e7230a53f4017b33d3decb`). [Reproduction guide](canonical-release.md) gives executable commands; `scripts.verify_canonical_release` rejects mismatched identities. Private artifacts are retained locally and are not GitHub release attachments.
 
 ## Module map
 

@@ -1,6 +1,6 @@
 # Project state
 
-- **Current phase:** Final documentation/portfolio release audit in progress;
+- **Current phase:** Final documentation/portfolio audit implementation verified;
   Phase 6 canonical real IEEE-CIS release COMPLETE under the
   explicitly authorized external-infrastructure exception; production-like E2E
   remains NOT VERIFIED. Phase 5 security remediation remains verified.
@@ -9,7 +9,8 @@
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next required action:** Final-audit PR CI/merge and localized portfolio verification. No model or infrastructure redesign is started.
+- **Release gate:** Final MLOps PR [#10](https://github.com/bulsahkecici/end-to-end-mlops-fraud-detection/pull/10) tracks merge checks and post-merge CI.
+- **Portfolio integration:** PR #1 merged into the active premium design branch; production main is unchanged. No model or infrastructure redesign is started.
 
 Dated records below are historical checkpoints; later verified records supersede
 earlier pending/blocker statements. See [final audit](final-audit.md) for the current
@@ -831,3 +832,32 @@ merged branches removed, two with unique history retained. No image/security
 baseline/model/evaluation changes, no retraining and no final-test rerun.
 Original stash is unchanged: 3384b5a200c73bd07a36dabb11f274280d72ca20.
 PR/master remote verification remains pending at this pre-commit checkpoint.
+
+## Final cross-repository implementation audit — 2026-10-02
+
+Portfolio PR [#1](https://github.com/bulsahkecici/portfolio-project/pull/1)
+merged into `redesign/v3-premium` as
+`b4919f4b17bf1f86be360b65ffb6931c8a0e3359`, final head
+`af3db41` (full identity in the PR). Both Vercel checks passed on the final head.
+EN/TR/DE fraud selected work, case study and linked engineering note match the
+canonical metrics (five display metrics independently checked against rounding
+of final_test_metrics.json), run/version/release and limitations. Eight stages
+keep champion and deployment separate. Source/release/reproduction CTAs resolve.
+Actual Vercel preview was opened and checked; local typecheck, lint and production
+build passed. All localized homepages and fraud routes passed browser checks at
+390px and about 1280px with no overflow or console/hydration warnings; full locale
+key parity passed. No client boundary/dependency/animation or site redesign added.
+
+Production portfolio main remains at f1f08a964f8ef34b1fb51c80c4b8d74ea171cebe:
+publishing the 19 unrelated premium redesign commits is outside this scoped PR.
+Original portfolio checkout retains its uncommitted design planning/mockups;
+all case-study work used an isolated worktree. Its production case-study URL is
+therefore not set as the MLOps homepage. The verified preview is linked from the
+portfolio PR/audit record. Original MLOps stash remains untouched.
+
+MLOps PR #10's initial run 37027973937 completed lint/type/dependency integrity,
+253 unit / 21 integration / 274 coverage tests successfully; Docker and synthetic
+E2E were still executing at this dated follow-up. Final PR checks and post-merge
+master CI must succeed before final completion is claimed. No extra security
+workflow was dispatched for these prose/license-only changes; prior authoritative
+37018604851 / artifact 11232691606 and the unchanged residual policy remain valid.

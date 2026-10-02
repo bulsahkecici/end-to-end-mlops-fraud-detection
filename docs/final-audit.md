@@ -74,3 +74,15 @@ Branch-cleanup review initially rejected the combined command; explicit fresh
 ancestry checks supported the narrow successful deletion. One deletion attempt
 failed because three references were already absent remotely; reconciliation
 and pruning resolved it without deleting unique work.
+
+## Cross-repository result
+
+Portfolio PR #1 merged into the active premium design branch at
+b4919f4b17bf1f86be360b65ffb6931c8a0e3359 after both final Vercel checks passed.
+Local typecheck/lint/build, full EN/TR/DE key parity, localized desktop/mobile
+browser checks and independent rounding checks against the immutable canonical
+metrics passed. The actual Vercel preview matches release evidence. Production
+main remains unchanged to avoid publishing unrelated redesign history; homepage
+metadata remains unset. Original portfolio planning/mockups are preserved.
+Final MLOps merge/master CI is tracked in PR #10; no security-source change or
+redundant security image workflow. No unmerged historical branch was deleted.

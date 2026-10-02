@@ -11,6 +11,7 @@
   "selection_after_final_test": false,
   "serving_command": "python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8326",
   "serving_validation_initial_failure": "Evidence check assumed model_source URI; existing API returns version:1. Validator corrected; service contract unchanged.",
+  "temporary_api_after_verification": "Stopped normally with SIGTERM; deployment/model artifacts preserved",
   "training_call": "run_training(data_source='ieee', seed=42, categorical_strategy='ordinal_drop_high_cardinality', calibration_strategy='none', experiment_variant_id='ieee-cis-v1-ordinal-none')",
   "training_environment": {
     "MLFLOW_EXPERIMENT_NAME": "ieee-cis-v1",

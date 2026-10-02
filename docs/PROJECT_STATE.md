@@ -10,8 +10,9 @@
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next authorized work:** Finish authorized Phase 6 verification and publication.
-  The independent MinIO production-stack limitation remains recorded.
+- **Next required action:** Explicitly authorize a Phase 6 completion exception for
+  the unavailable MinIO production-like gate, or separately authorize an
+  infrastructure change. No exception or object-store substitution was inferred.
 
 ## Canonical architecture
 
@@ -692,8 +693,34 @@ exact policy: each image 22 findings, 14 HIGH / 8 CRITICAL, 22 reviewed matches,
 zero issues/unaccepted/stale/newly-fixable changes; Wolfi 38/38 Trivy/Syft OS
 coverage PASS, SPDX SBOMs PASS, zero Gitleaks findings, runtime imports,
 cross-image serialization/live MLflow and synthetic immutable API lifecycle PASS.
-The canonical private binary was not container-tested. This security source
-precedes final docs/evidence commits; final-branch normal CI/security is pending.
+The canonical private binary was not container-tested.
+
+Final implementation source `0cbc92419b55e69d0ee64a197c562a62b64242bb` passed
+all three normal PR CI jobs in `37011458910`: 253 unit / 21 integration /
+274 coverage tests at 87.77%, aligned API image build, and 9/9 synthetic
+lifecycle/API steps. Its fresh security run `37011457845`, artifact
+`11227802287`, also SUCCESS; downloaded reports were independently re-evaluated
+with exactly the same 22 reviewed findings / 14 HIGH / 8 CRITICAL, zero
+unaccepted/stale/changed-fix findings, 38/38 OS coverage, SPDX PASS, zero
+Gitleaks findings and complete runtime/server/synthetic API PASS. No risk
+baseline or image/source implementation changed in this final evidence follow-up.
+
+A final local inspection reconciled candidate/champion/deployed version 1 and
+the run, plus all 48 private model artifact hashes. Its first ad hoc check
+compared MLflow integer version 1 with string "1"; normalization corrected the
+check without changing aliases or model state. The 1,827,518-byte fitted
+pipeline SHA-256 is
+`4900d5c0746e72ded345ddf5f58fc8aef59af4b4b81f905cbd125c56c46008c5`.
+Only safe hashes are published. Temporary API was stopped after verification;
+the private isolated model/store/deployment remain available.
+
+PR #9 is open for review with the real evidence and exact blocker. No unresolved
+review threads existed at inspection. All modeled/serving results remain valid;
+no final-test rerun occurred. Master remains
+`825967251d19b97d6650fae4f3c889f032ea98f7`. Merge, release tag and post-merge
+master workflows are NOT RUN because the mandatory production-like gate fails.
+The final follow-up changes only safe evidence/documentation, not Python source,
+models, configuration, runtime or the risk baseline.
 
 Phase 6 is **BLOCKED on closure**: its specification requires production-like E2E
 and all required checks to pass. An infrastructure limitation must not silently

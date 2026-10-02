@@ -1,5 +1,5 @@
 {
-  "artifact_id": 11227139997,
+  "artifact_id": 11227802287,
   "expiry": "2026-11-01",
   "gitleaks_findings": 0,
   "images": [
@@ -12,7 +12,7 @@
         "stale_baseline_requires_review": false,
         "status": "ACCEPTED"
       },
-      "image_id": "sha256:b7a14956ac61056ca4146aafee69c2b6dc86809c97e6cdb03575baa818a4dfa3",
+      "image_id": "sha256:92b683c01cd40dd97fbb36aea7e5f6ebf451d63aae893c13be22d5e8aff6698f",
       "os_coverage": {
         "family": "wolfi",
         "status": "PASS",
@@ -36,7 +36,7 @@
         "stale_baseline_requires_review": false,
         "status": "ACCEPTED"
       },
-      "image_id": "sha256:e56f65b53839c7e1e6cb525e6a406b2d655ff4ee10bf1755b85cfbb8b5f66996",
+      "image_id": "sha256:fdcf864ec15ad77c2fbde286624255b55c7a1dde85a37a56ce142025e383fdce",
       "os_coverage": {
         "family": "wolfi",
         "status": "PASS",
@@ -52,8 +52,10 @@
       }
     }
   ],
+  "prior_artifact_id": 11227139997,
+  "prior_run_id": 37010476773,
   "risk_baseline_unchanged": true,
   "runtime_and_live_synthetic_lifecycle": "PASS; canonical private binary not container tested",
-  "source_commit": "c54bf3380df626026d6921be93f9667bbb2f1374",
-  "workflow_run_id": 37010476773
+  "source_commit": "0cbc92419b55e69d0ee64a197c562a62b64242bb",
+  "workflow_run_id": 37011457845
 }

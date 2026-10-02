@@ -1,4 +1,12 @@
 {
+  "final_registry_artifact_inspection": {
+    "candidate_version": "1",
+    "champion_version": "1",
+    "deployed_version": "1",
+    "first_inspection_error": "Compared integer registry version to string; normalized as repository lifecycle does; reinspection passed without registry mutation",
+    "private_model_artifacts_checked": 48,
+    "status": "PASS"
+  },
   "local_checks": {
     "black_check": {
       "exit_code": 0,
@@ -56,6 +64,21 @@
       "exit_code": 0,
       "passed": 253
     }
+  },
+  "normal_ci": {
+    "coverage_percent": 87.77,
+    "coverage_suite_passed": 274,
+    "integration_passed": 21,
+    "jobs": [
+      "lint-type-test",
+      "docker",
+      "e2e-smoke"
+    ],
+    "source_commit": "0cbc92419b55e69d0ee64a197c562a62b64242bb",
+    "status": "PASS",
+    "synthetic_lifecycle_steps_passed": 9,
+    "unit_passed": 253,
+    "workflow_run_id": 37011458910
   },
   "phase_completion": "BLOCKED: mandatory production-like E2E cannot pass; no specification waiver assumed",
   "post_merge_checks": "NOT RUN: not merged while mandatory workflow fails",

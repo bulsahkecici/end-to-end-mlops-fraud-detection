@@ -408,10 +408,14 @@ def test_runtime_build_tool_policy():
         assert "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y" in runtime
         assert "rm -rf /var/lib/apt/lists/*" in runtime
         assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in runtime
-        assert runtime.index("pip uninstall") > runtime.index(
+        assert runtime.index("pip uninstall -y setuptools wheel") > runtime.index(
             "COPY --from=builder" if filename == "Dockerfile.api" else "pip install"
         )
         assert "build-essential" not in runtime
+    api_runtime = (root / "Dockerfile.api").read_text().split("FROM ")[-1]
+    assert api_runtime.index("pip uninstall -y packaging") < api_runtime.index(
+        "COPY --from=builder"
+    )
     assert "pyarrow==17.0.0" in (root / "requirements.txt").read_text()
 
 

@@ -18,6 +18,9 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update \
 # Pin a fixed, non-root uid/gid so file ownership is deterministic across builds.
 RUN groupadd --gid 10001 app && useradd --uid 10001 --gid app --no-create-home --shell /usr/sbin/nologin app
 
+# Remove base packaging metadata before overlaying MLflow's compatible version.
+# Otherwise the base dist-info survives alongside the builder-installed copy.
+RUN python -m pip uninstall -y packaging
 COPY --from=builder /install /usr/local
 
 # Dependency installation is complete; serving loads the fitted model in-process.

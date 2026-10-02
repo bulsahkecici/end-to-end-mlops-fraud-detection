@@ -336,3 +336,23 @@ Compose profile renders and `git diff --check` passed (exit 0). No Python source
 changed; prior full local suite remains 255 passed / 87.50%. Local Docker builds
 remain NOT RUN because Colima is stopped; required fresh-image verification is
 performed by remote evidence and normal CI before merge.
+
+
+Trixie branch evidence run `36995801604` failed at API build `pip check` before
+runtime/scans: the new base includes `packaging 26.3`; the prefix-installed
+MLflow-compatible `packaging 24.2` overlay left the base's old dist-info behind.
+The builder log confirms its dependency resolver selected 24.2; MLflow-skinny
+2.22.5 requires packaging<25. The smallest fix removes base packaging before
+copying the complete builder prefix, restoring one compatible package/metadata
+copy without changing requirements or bypassing pip check. MLflow's single-stage
+pip install already replaces base dependencies normally. Fresh builds remain
+required; no findings are inferred from the failed run.
+
+Prefix-cleanup verification: focused security tests 62 passed, full unit rerun
+234 passed, Ruff, Black and Mypy passed, both Compose profiles and diff check
+passed (all final exit 0). The existing policy test initially failed by matching
+the new packaging uninstall instead of setuptools/wheel; it now explicitly
+checks build-tool removal after dependency copy/install and additionally checks
+base packaging removal before overlay. No build-tool ordering check was removed.
+Black initially requested formatting of that new assertion; formatted and rerun
+successfully. Remote image verification remains required.

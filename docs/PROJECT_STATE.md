@@ -402,3 +402,16 @@ before images on the digest false positive, whose validated fix is in PR #7.
 Phase 6 remains blocked and has not started. The single next scope decision is
 to authorize a separate runtime-base redesign that removes these OS packages,
 while retaining Python 3.11 and the existing model/serving contract.
+
+## Scoped runtime redesign in progress — 2026-10-02
+
+User authorized a runtime redesign after comparing safer alternatives. PR #7
+head 0f57c602b0bccd97f47e01d17e5ba81fb4f1c814 passed all three normal CI jobs in
+run 36996881845; it remains unmerged pending runtime selection. Requested artifact
+11221757189 was independently downloaded again: identical 44 OS tuples across
+17 packages per image. Exact inventory and strategy comparison are in
+`docs/security/`. Dedicated branch `hardening/phase-5-minimal-runtime` evaluates
+an ELF-closure rootfs from the pinned official Trixie builder, preserving the
+complete CPython installation and package provenance. Runtime and fresh security
+validation are pending remote execution; no successful redesign or new count is
+claimed. No OS risk is accepted. Phase 6 remains blocked; stash is untouched.

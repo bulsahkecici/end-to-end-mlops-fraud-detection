@@ -404,16 +404,20 @@ def test_execution_errors_never_become_accepted(tmp_path, monkeypatch, failure):
 def test_runtime_build_tool_policy():
     root = Path(__file__).resolve().parents[2]
     for filename in ("Dockerfile.api", "Dockerfile.mlflow"):
-        runtime = (root / filename).read_text().split("FROM ")[-1]
-        assert "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y" in runtime
-        assert "rm -rf /var/lib/apt/lists/*" in runtime
-        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in runtime
-        assert runtime.index("pip uninstall -y setuptools wheel") > runtime.index(
+        contents = (root / filename).read_text()
+        prepared, runtime = contents.rsplit("FROM scratch AS runtime", 1)
+        assert "DEBIAN_FRONTEND=noninteractive apt-get upgrade -y" in prepared
+        assert "rm -rf /var/lib/apt/lists/*" in prepared
+        assert "python -m pip uninstall -y setuptools wheel && python -m pip check" in prepared
+        assert prepared.index("pip uninstall -y setuptools wheel") > prepared.index(
             "COPY --from=builder" if filename == "Dockerfile.api" else "pip install"
         )
-        assert "build-essential" not in runtime
-    api_runtime = (root / "Dockerfile.api").read_text().split("FROM ")[-1]
-    assert api_runtime.index("pip uninstall -y packaging") < api_runtime.index(
+        assert "RUN python /assemble_runtime.py" in prepared
+        assert "COPY --from=prepared /runtime /" in runtime
+        assert 'RUN ["/usr/local/bin/python", "-m", "pip", "check"]' in runtime
+        assert "build-essential" not in contents
+    api_prepared = (root / "Dockerfile.api").read_text().split("FROM scratch")[0]
+    assert api_prepared.index("pip uninstall -y packaging") < api_prepared.index(
         "COPY --from=builder"
     )
     assert "pyarrow==17.0.0" in (root / "requirements.txt").read_text()

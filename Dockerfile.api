@@ -5,7 +5,7 @@ WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS runtime
+FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS prepared
 
 # libgomp1 provides libgomp.so.1, the OpenMP runtime lightgbm's compiled
 # wheel dynamically links against — absent from the slim base image, so
@@ -30,7 +30,17 @@ WORKDIR /app
 COPY src ./src
 
 RUN chown -R app:app /app
-USER app
+
+COPY docker/assemble_runtime.py /assemble_runtime.py
+RUN python /assemble_runtime.py
+
+FROM scratch AS runtime
+COPY --from=prepared /runtime /
+WORKDIR /app
+COPY --from=prepared --chown=10001:10001 /app/src ./src
+USER 10001:10001
+ENV PATH=/usr/local/bin
+RUN ["/usr/local/bin/python", "-m", "pip", "check"]
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -42,6 +52,6 @@ ENV PYTHONUNBUFFERED=1 \
 EXPOSE 8000
 
 HEALTHCHECK --interval=15s --timeout=5s --start-period=20s --retries=5 \
-    CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status==200 else 1)"
+    CMD ["python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/ready', timeout=3).status==200 else 1)"]
 
 CMD ["uvicorn", "src.api.app:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--proxy-headers"]

@@ -1,0 +1,16 @@
+{
+  "action": "deploy",
+  "deployed_at": "2026-10-02T12:53:21.465951+00:00",
+  "deployment_id": "20261002T125321465784Z-4cf8f6d7fe324477b6f25ae0bfa4e886",
+  "git_branch": "release/phase-6-canonical-ieee",
+  "git_commit": "cf83cf008d2332f263611dcb752d63f6c96d48a8",
+  "git_dirty": true,
+  "model_name": "ieee_fraud_lgbm",
+  "model_version": "1",
+  "previous_deployment_id": null,
+  "previous_model_version": null,
+  "rollback_of_deployment_id": null,
+  "run_id": "a7d516e70f714caeb67f35bd2c30762f",
+  "schema_version": 1,
+  "source_alias": "champion"
+}

@@ -147,8 +147,8 @@ def verify_release(directory: Path, *, final: bool = True) -> dict:
         )
         serving = read("serving_manifest")
         require(
-            serving["ready"]["model_source"] == uri,
-            'Evidence mismatch: serving["ready"]["model_source"] == uri',
+            serving["ready"]["model_source"] == f"version:{version}",
+            'Evidence mismatch: serving["ready"]["model_source"] == f"version:{version}"',
         )
         require(
             serving["ready"]["model_version"] == version,

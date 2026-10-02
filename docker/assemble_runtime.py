@@ -41,7 +41,7 @@ def copy(path):
 
 
 shutil.copytree("/usr/local", ROOT / "usr/local", symlinks=True)
-packages = {"ca-certificates", "tzdata", "openssl-provider-legacy", "gcc-14-base"}
+packages = {"ca-certificates", "tzdata", "openssl-provider-legacy", "openssl", "gcc-14-base"}
 edges = []
 for path in sorted(Path("/usr/local").rglob("*")):
     if not path.is_file() or path.is_symlink():
@@ -78,6 +78,8 @@ for package in sorted(packages):
         if path.suffix in {".list", ".md5sums"}:
             copy(path)
 
+shutil.copytree("/etc/ssl/certs", ROOT / "etc/ssl/certs", symlinks=True, dirs_exist_ok=True)
+
 for filename in [
     "/etc/ssl/certs/ca-certificates.crt",
     "/etc/nsswitch.conf",
@@ -91,6 +93,8 @@ for filename in [
 for directory in ["tmp", "app", "db", "var/lib/dpkg", "usr/share/runtime"]:
     (ROOT / directory).mkdir(parents=True, exist_ok=True)
 (ROOT / "tmp").chmod(0o1777)
+(ROOT / "etc/ld.so.conf").write_text("/usr/local/lib\n")
+subprocess.run(["ldconfig", "-r", str(ROOT)], check=True)
 (ROOT / "var/lib/dpkg/status").write_text("\n\n".join(status) + "\n")
 (ROOT / "usr/share/runtime/closure.json").write_text(
     json.dumps({"packages": sorted(packages), "elf_dependencies": edges}, indent=2) + "\n"

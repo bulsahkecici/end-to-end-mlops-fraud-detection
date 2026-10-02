@@ -1,0 +1,21 @@
+{
+  "artifact_root": "artifacts/releases/ieee-cis-v1/mlartifacts",
+  "deployment_command": "python -m src.deployment.lifecycle deploy --expected-version 1",
+  "failed_final_test_invocations": 0,
+  "final_test_command": "python -m src.modeling.final_test --model-uri models:/ieee_fraud_lgbm/1",
+  "final_test_invocations": 1,
+  "local_production_validation": "Exit 1: Docker daemon stopped; no services or volumes created; remote workflow requested.",
+  "promotion_command": "python -m src.registry.promote",
+  "release_id": "ieee-cis-v1",
+  "security_initial_failure": "Sandbox pip-audit returned no valid JSON; network retry matched unchanged baseline.",
+  "selection_after_final_test": false,
+  "serving_command": "python -m uvicorn src.api.app:app --host 127.0.0.1 --port 8326",
+  "serving_validation_initial_failure": "Evidence check assumed model_source URI; existing API returns version:1. Validator corrected; service contract unchanged.",
+  "training_call": "run_training(data_source='ieee', seed=42, categorical_strategy='ordinal_drop_high_cardinality', calibration_strategy='none', experiment_variant_id='ieee-cis-v1-ordinal-none')",
+  "training_environment": {
+    "MLFLOW_EXPERIMENT_NAME": "ieee-cis-v1",
+    "MLFLOW_TRACKING_URI": "sqlite:///artifacts/releases/ieee-cis-v1/mlflow.db",
+    "SAMPLE_ROWS": "0"
+  },
+  "training_invocations": 1
+}

@@ -1,0 +1,26 @@
+{
+  "checks": {
+    "accepted_risks_not_claimed_remediated": true,
+    "canonical_default_frozen_before_final": true,
+    "deployment_history_reconciled": true,
+    "immutable_run_version_serving_reconciled": true,
+    "no_final_test_selection_or_threshold_leakage": true,
+    "production_failure_not_claimed_pass": true,
+    "promotion_distinct_and_checksum_verified": true,
+    "protected_stash_unchanged": true,
+    "raw_restricted_data_not_tracked": true,
+    "real_synthetic_labels_separated": true,
+    "reproduction_uses_relative_paths": true,
+    "sampled_full_labels_correct": true,
+    "temporal_partitions_disjoint": true,
+    "train_only_preprocessing": true
+  },
+  "genuine_issues_fixed": [
+    "Readiness validator assumed URI instead of existing version:1 field; fixed evidence check",
+    "Model card and architecture still described logged-metric comparisons/mutable alias serving; updated to hardened lifecycle",
+    "README implied TransactionAmt mandatory; corrected semantic contract",
+    "Verifier assertions could be bypassed by optimized Python; replaced with explicit exceptions before final reporting"
+  ],
+  "remaining_blocker": "Required production-like E2E fails only on existing unavailable MinIO image; architectural replacement/phase waiver not authorized",
+  "review_method": "Hostile second-pass source/evidence/documentation review by maintainer"
+}

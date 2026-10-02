@@ -7,6 +7,7 @@ import json
 from pathlib import Path
 
 from scripts.canonical_release import semantic_hash
+from src.utils.repro import fingerprint_file_contents
 
 
 def require(condition: bool, detail: str) -> None:
@@ -35,6 +36,35 @@ def verify_release(directory: Path, *, final: bool = True) -> dict:
     metadata = read("model_metadata")
     version, run_id = training["model_version"], training["run_id"]
     uri = f"models:/{config['model_name']}/{version}"
+    require(metadata["model_name"] == config["model_name"], "Model name differs")
+    require(
+        metadata["cost"]
+        == {
+            "false_negative_cost": config["cost"]["false_negative"],
+            "false_positive_cost": config["cost"]["false_positive"],
+        },
+        "Cost parameters differ",
+    )
+    require(
+        metadata["dataset"]["split_ratios"]
+        == {
+            "train": config["split_ratios"]["train"],
+            "validation": config["split_ratios"]["development"],
+            "test": config["split_ratios"]["final_test"],
+        },
+        "Split ratios differ",
+    )
+    require(training["threshold"] == metadata["threshold"], "Training threshold differs")
+    require(promotion["comparison"]["candidate"]["run_id"] == run_id, "Promotion run differs")
+    require(
+        promotion["comparison"]["evaluation"]["fingerprint"]
+        == splits["promotion_evaluation"]["fingerprint"],
+        "Promotion evaluation differs",
+    )
+    require(
+        promotion["comparison"]["evaluation"]["excludes_final_test"] is True,
+        "Promotion does not exclude final test",
+    )
     require(
         metadata["data_fingerprint"] == dataset["training_source_fingerprint"],
         'Evidence mismatch: metadata["data_fingerprint"] == dataset["training_source_fing',
@@ -118,6 +148,40 @@ def verify_release(directory: Path, *, final: bool = True) -> dict:
         'Evidence mismatch: deployment["action"] == "deploy" and deployment["source_alias',
     )
     if final:
+        release = read("release_manifest")
+        for filename, checksum in release["evidence_sha256"].items():
+            require(
+                fingerprint_file_contents(directory / filename) == checksum,
+                f"Evidence byte checksum changed: {filename}",
+            )
+        require(
+            release["run_id"] == run_id and release["model_uri"] == uri,
+            "Release model identity differs",
+        )
+        require(
+            all(
+                release[key] == version
+                for key in ("model_version", "champion_version", "deployed_version")
+            ),
+            "Release lifecycle versions differ",
+        )
+        require(
+            release["dataset_fingerprint"] == dataset["source_fingerprint"],
+            "Release dataset identity differs",
+        )
+        require(
+            release["config_fingerprint"] == freeze["config_sha256"],
+            "Release configuration identity differs",
+        )
+        require(
+            release["deployment_id"] == deployment["deployment_id"],
+            "Release deployment identity differs",
+        )
+        require(
+            release["training_source_commit"] == metadata["git"]["commit"],
+            "Training source differs",
+        )
+        require(release["final_test_execution_count"] == 1, "Final test execution count differs")
         report = read("final_test_metrics")
         require(report["model_uri"] == uri, 'Evidence mismatch: report["model_uri"] == uri')
         require(

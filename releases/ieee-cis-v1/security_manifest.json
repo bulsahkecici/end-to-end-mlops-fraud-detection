@@ -1,0 +1,59 @@
+{
+  "artifact_id": 11227139997,
+  "expiry": "2026-11-01",
+  "gitleaks_findings": 0,
+  "images": [
+    {
+      "baseline_evaluation": {
+        "finding_count": 22,
+        "issues": [],
+        "matched_count": 22,
+        "stale_baseline_entries": [],
+        "stale_baseline_requires_review": false,
+        "status": "ACCEPTED"
+      },
+      "image_id": "sha256:b7a14956ac61056ca4146aafee69c2b6dc86809c97e6cdb03575baa818a4dfa3",
+      "os_coverage": {
+        "family": "wolfi",
+        "status": "PASS",
+        "syft_package_count": 38,
+        "trivy_package_count": 38
+      },
+      "role": "api",
+      "sbom_package_count": 129,
+      "sbom_version": "SPDX-2.3",
+      "severity_counts": {
+        "CRITICAL": 8,
+        "HIGH": 14
+      }
+    },
+    {
+      "baseline_evaluation": {
+        "finding_count": 22,
+        "issues": [],
+        "matched_count": 22,
+        "stale_baseline_entries": [],
+        "stale_baseline_requires_review": false,
+        "status": "ACCEPTED"
+      },
+      "image_id": "sha256:e56f65b53839c7e1e6cb525e6a406b2d655ff4ee10bf1755b85cfbb8b5f66996",
+      "os_coverage": {
+        "family": "wolfi",
+        "status": "PASS",
+        "syft_package_count": 38,
+        "trivy_package_count": 38
+      },
+      "role": "mlflow",
+      "sbom_package_count": 119,
+      "sbom_version": "SPDX-2.3",
+      "severity_counts": {
+        "CRITICAL": 8,
+        "HIGH": 14
+      }
+    }
+  ],
+  "risk_baseline_unchanged": true,
+  "runtime_and_live_synthetic_lifecycle": "PASS; canonical private binary not container tested",
+  "source_commit": "c54bf3380df626026d6921be93f9667bbb2f1374",
+  "workflow_run_id": 37010476773
+}

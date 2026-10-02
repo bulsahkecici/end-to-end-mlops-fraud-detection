@@ -1,0 +1,117 @@
+{
+  "checks": {
+    "expected_target_presence": true,
+    "identity_ids_subset_of_transaction_ids": true,
+    "no_duplicate_complete_rows_including_unique_id": true,
+    "nonnegative_nonmissing_transaction_time": true,
+    "transaction_id_unique_all_four_files": true
+  },
+  "expected_schema_reference": "Original source byte hashes and ordered columns in preregistered dataset_manifest.json",
+  "identity": {
+    "test_only_columns": [
+      "id-01",
+      "id-02",
+      "id-03",
+      "id-04",
+      "id-05",
+      "id-06",
+      "id-07",
+      "id-08",
+      "id-09",
+      "id-10",
+      "id-11",
+      "id-12",
+      "id-13",
+      "id-14",
+      "id-15",
+      "id-16",
+      "id-17",
+      "id-18",
+      "id-19",
+      "id-20",
+      "id-21",
+      "id-22",
+      "id-23",
+      "id-24",
+      "id-25",
+      "id-26",
+      "id-27",
+      "id-28",
+      "id-29",
+      "id-30",
+      "id-31",
+      "id-32",
+      "id-33",
+      "id-34",
+      "id-35",
+      "id-36",
+      "id-37",
+      "id-38"
+    ],
+    "train_only_columns": [
+      "id_01",
+      "id_02",
+      "id_03",
+      "id_04",
+      "id_05",
+      "id_06",
+      "id_07",
+      "id_08",
+      "id_09",
+      "id_10",
+      "id_11",
+      "id_12",
+      "id_13",
+      "id_14",
+      "id_15",
+      "id_16",
+      "id_17",
+      "id_18",
+      "id_19",
+      "id_20",
+      "id_21",
+      "id_22",
+      "id_23",
+      "id_24",
+      "id_25",
+      "id_26",
+      "id_27",
+      "id_28",
+      "id_29",
+      "id_30",
+      "id_31",
+      "id_32",
+      "id_33",
+      "id_34",
+      "id_35",
+      "id_36",
+      "id_37",
+      "id_38"
+    ]
+  },
+  "missingness": {
+    "test_identity.csv": {
+      "fully_missing_columns": [],
+      "maximum_missing_fraction": 0.9665978422487967
+    },
+    "test_transaction.csv": {
+      "fully_missing_columns": [],
+      "maximum_missing_fraction": 0.9280902956634319
+    },
+    "train_identity.csv": {
+      "fully_missing_columns": [],
+      "maximum_missing_fraction": 0.9670879757059757
+    },
+    "train_transaction.csv": {
+      "fully_missing_columns": [],
+      "maximum_missing_fraction": 0.9362837403054831
+    }
+  },
+  "release_id": "ieee-cis-v1",
+  "transaction": {
+    "test_only_columns": [],
+    "train_only_columns": [
+      "isFraud"
+    ]
+  }
+}

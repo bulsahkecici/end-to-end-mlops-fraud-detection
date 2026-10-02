@@ -1,18 +1,14 @@
 # Project state
 
-- **Current phase:** Phase 6 canonical real IEEE-CIS model evidence recorded;
-  production-like E2E NOT VERIFIED; explicit external-infrastructure closure
-  exception authorized on 2026-10-02 (MinIO image unavailable).
-  PHASE 5 SECURITY REMEDIATION VERIFIED. Monitoring + Security
-  Slices 1–3 and the verified runtime redesign are complete; delayed-label
-  monitoring remains deferred.
+- **Current phase:** Phase 6 canonical real IEEE-CIS release COMPLETE under the
+  explicitly authorized external-infrastructure exception; production-like E2E
+  remains NOT VERIFIED. Phase 5 security remediation remains verified.
 - **Merged Phase 2 commit:** `b5293d5eee0a6210658d5be1a048618e9792bc6d`
 - **Merged Phase 1 PR commit:** `e51594d2f9f93832afcc046d33098e2df69bb680`
 - **Phase 1 implementation commit:** `17229aff64d8ad3afb6d39f9b6651eb66dce4771`
 - **Verified Phase 1 base/bootstrap commit:** `4dc6d550332b1f6106769ca2c48723d4cdef131c`
 - **Default branch:** `master`
-- **Next required action:** Complete PR #9 merge, verify fresh master CI/security
-  evidence, and publish the canonical release under the explicit MinIO exception.
+- **Next required action:** None within Phase 6. No post-Phase-6 redesign is started.
 
 ## Canonical architecture
 
@@ -751,3 +747,66 @@ private generated artifacts or absolute personal paths are tracked.
 Documentation-only verification uses diff checks and the safe offline release
 verifier; heavyweight runtime/model tests are not applicable to this prose change.
 Original stash remains `3384b5a200c73bd07a36dabb11f274280d72ca20`.
+
+## Phase 6 final verified master / release checkpoint — 2026-10-02
+
+PR [#9](https://github.com/bulsahkecici/end-to-end-mlops-fraud-detection/pull/9)
+merged with a normal two-parent merge commit. Approved final PR head:
+`d8a00f1b58cf801e4902f1f2cef98ddccfdd6bb0`; final PR CI `37015662481` SUCCESS,
+no unresolved review threads. **Verified master / merge / tagged release SHA:**
+`243212ce211ceedb02e7230a53f4017b33d3decb`. Local master was fast-forwarded to
+origin/master, and the merged tree exactly matches the approved PR tree.
+
+[Final master CI 37016887460](https://github.com/bulsahkecici/end-to-end-mlops-fraud-detection/actions/runs/37016887460)
+SUCCESS on that exact SHA; push CI `37016819352` also SUCCESS. Actual logs:
+253 unit tests, 21 integration tests, 274 full coverage tests, **87.77%** coverage
+(75% minimum), dependency integrity/reviewed audit, Ruff/Black/mypy, both Compose
+profiles, API image build and **9/9 synthetic lifecycle/API steps** PASS.
+Production-like opt-in was not run by normal CI and is not a passing gate.
+
+[Final master Security Evidence 37016822537](https://github.com/bulsahkecici/end-to-end-mlops-fraud-detection/actions/runs/37016822537)
+SUCCESS on that exact SHA; actual artifact **11230064681** was downloaded outside
+the repository and independently re-evaluated using the unchanged baseline and
+OS coverage validator. Artifact digest:
+`sha256:52540cfda0263025ab502b11ad156872541cb4908e52871ceadc49d74dd5c5ad`.
+Each image: 22 accepted Python residuals (14 HIGH / 8 CRITICAL), zero OS findings,
+zero unaccepted/stale/changed-fix findings, Wolfi **38/38** exact Trivy/Syft OS
+identities, SPDX 2.3 PASS. Full-history Gitleaks: zero findings. All fresh image
+builds, native imports, cross-image serialization, live MLflow and the nine-step
+non-root synthetic API lifecycle PASS. Accepted residual risks still expire
+2026-11-01; they are not remediated vulnerabilities. Canonical private binary
+container execution remains unclaimed.
+
+Annotated **`ieee-cis-v1`** tag targets verified master commit
+`243212ce211ceedb02e7230a53f4017b33d3decb` (tag object
+`14af11c86192ed732890b4d8ecdbedbd678a08dc`). The public
+[GitHub Release](https://github.com/bulsahkecici/end-to-end-mlops-fraud-detection/releases/tag/ieee-cis-v1)
+contains only canonical real metrics, dataset fingerprint, run/version/source
+identity, reproduction links and the explicit MinIO limitation; **zero attached
+assets**. The original manifests, model, promotion, deployment, metrics and
+security/evaluation evidence were not changed. Final-test invocation count
+remains one; no final-test selection leakage or rerun occurred.
+
+**Production-like E2E = NOT VERIFIED.** Reason: **unavailable legacy Community
+MinIO container distribution**; existing `minio/minio` repository/image is
+unavailable/access denied. Failed workflow **37009722147** is preserved as failed
+evidence. This is an **external infrastructure limitation**. The explicitly
+authorized exception permits Phase 6 closure; it does not establish a full-stack
+PASS or production readiness. **Local-lite real IEEE-CIS lifecycle is verified;
+canonical release evidence remains valid.** MinIO and the production-like validator
+remain unchanged; no AIStor/other object store or infrastructure redesign occurred.
+
+The final closure record is documentation only, following the tagged verified
+master checkpoint; it does not move the immutable release tag or change runtime
+source. Its local checks passed (exit 0): safe release verifier in normal and
+optimized Python, 10 release regressions, full-history Gitleaks (zero findings),
+tracked-file/private-artifact inspection and `git diff --check`. Runtime/container
+and model scoring checks were not rerun for this prose-only record because they
+are not applicable; the exact master executions above are authoritative.
+Tracked storage contains only placeholders, synthetic test fixtures and safe
+release metadata/public security inventory. No raw IEEE-CIS data, restricted rows,
+model binaries, MLflow DBs, credentials, absolute personal paths or generated
+private artifacts are tracked. The original stash remains untouched:
+`3384b5a200c73bd07a36dabb11f274280d72ca20`.
+
+**PHASE 6 CANONICAL IEEE-CIS RELEASE VERIFIED.**

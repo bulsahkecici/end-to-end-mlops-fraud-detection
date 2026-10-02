@@ -271,7 +271,8 @@ changed findings/fix snapshots, and expired reviews fail closed. Stale entries
 fail closed until reviewed and reconciled. Never extend the baseline merely to
 make CI green; obtain fresh image evidence and document each unavoidable risk.
 
-The runtime images upgrade Debian packages and remove setuptools/wheel after
+The runtime images use digest-pinned Python 3.11.17 slim Trixie, upgrade
+Debian packages, and remove setuptools/wheel after
 installation. The canonical prediction process and MLflow tracking server do
 not use these build tools directly; arbitrary environment-building operations
 are outside this image policy. Python 3.11 and MLflow 2.22.5 remain unchanged.

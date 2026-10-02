@@ -308,3 +308,31 @@ An initial directory-mode control returned a finding because it uses absolute
 paths; controls were rerun in temporary Git repositories matching the workflow.
 `git diff --check`: PASS. Only scanner configuration and this evidence note
 changed; prior code verification remains applicable. Phase 6 remains blocked.
+
+
+## Bookworm image evidence and base refresh — 2026-10-02
+
+Supplemental branch run `36995248203`, artifact `11221417110`, completed real
+fresh builds, Gitleaks PASS, final-image runtime compatibility PASS and both
+SPDX SBOMs PASS, but Trivy FAIL. Each image contains 85 findings: 72 HIGH,
+13 CRITICAL, 63 OS and 22 Python. All 22 MLflow/PyArrow entries exactly match,
+zero stale entries and zero changed fixed-version snapshots. The 63 remaining
+OS findings have no reported Bookworm fix; no OS findings were baselined.
+Setuptools/wheel findings disappeared. Reduction is 47/132 (35.6061%) per image,
+which does not meet the final gate.
+
+A minimal security prerequisite refreshes both Dockerfiles (API builder and
+runtime together) to official Python 3.11.17 slim Trixie, pinned to manifest
+index `sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51`.
+`docker buildx imagetools inspect python:3.11.17-slim-trixie` succeeded; amd64
+manifest `sha256:922f47525757de33aff59f24cdfc85f412ac4a06aa8af7c7e9028d584b7bcdeb`
+reports official source revision `cede844ace77284e32c03b61ebc35cdfc945e862`,
+created 2026-10-01. Python minor stays 3.11; MLflow stays 2.22.5; application
+pins, API libgomp1, network, MinIO and all model lifecycle semantics remain intact.
+Fresh Trixie builds and scans are pending; no OS reduction is inferred from tags.
+
+Base-refresh local verification: focused security tests 62 passed (exit 0), both
+Compose profile renders and `git diff --check` passed (exit 0). No Python source
+changed; prior full local suite remains 255 passed / 87.50%. Local Docker builds
+remain NOT RUN because Colima is stopped; required fresh-image verification is
+performed by remote evidence and normal CI before merge.

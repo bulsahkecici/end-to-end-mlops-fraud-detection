@@ -1,11 +1,11 @@
 # syntax=docker/dockerfile:1
-FROM python:3.11.10-slim AS builder
+FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS builder
 
 WORKDIR /build
 COPY requirements.txt .
 RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
 
-FROM python:3.11.10-slim AS runtime
+FROM python:3.11.17-slim-trixie@sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51 AS runtime
 
 # libgomp1 provides libgomp.so.1, the OpenMP runtime lightgbm's compiled
 # wheel dynamically links against — absent from the slim base image, so

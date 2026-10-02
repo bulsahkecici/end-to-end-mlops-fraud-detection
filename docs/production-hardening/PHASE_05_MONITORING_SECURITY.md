@@ -202,8 +202,12 @@ There are 75 unique vulnerability IDs across both images. API PyArrow is
 
 Both final runtime stages now refresh apt indexes and perform a noninteractive
 Debian package upgrade, preserving API's libgomp1 and cleaning apt lists.
-The Python 3.11.10 base tag is retained consistently; digest pinning is deferred
-because an authoritative immutable digest was not established in this change.
+The original Python 3.11.10 Bookworm base was insufficient: fresh upgrades
+left 63 unaccepted OS findings per image (run `36995248203`). Both Dockerfiles
+now use official Python 3.11.17 slim Trixie, consistently pinned to manifest
+index `sha256:45037981b62b34b44602584fccbc4d884d5f7dc92c7ee86bb38a698a79fe1e51`.
+The registry manifest was inspected directly. This scoped base refresh retains
+Python 3.11 and every application dependency pin; fresh evidence is still required.
 Setuptools and wheel are removed after dependency installation, followed by
 `pip check`. They are unpinned packaging tools, not application dependencies;
 inspection found no direct runtime imports in the application, MLflow,

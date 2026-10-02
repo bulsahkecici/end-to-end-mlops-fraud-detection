@@ -36,11 +36,18 @@ def main():
         "zoneinfo",
     ]:
         importlib.import_module(name)
+    import curses
     import ssl
+    import uuid
     from zoneinfo import ZoneInfo
 
     assert ssl.create_default_context().get_ca_certs()
     assert ZoneInfo("Europe/Istanbul")
+    curses.setupterm(term="xterm")
+    assert uuid.uuid4().version == 4
+    assert uuid.uuid1().version == 1
+    for executable in ["/usr/bin/infocmp", "/usr/bin/nsenter", "/usr/bin/mount", "/bin/mount"]:
+        assert not Path(executable).exists()
     assert not Path("/bin/sh").exists()
     for name in ["setuptools", "wheel"]:
         try:

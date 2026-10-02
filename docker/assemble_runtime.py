@@ -86,6 +86,12 @@ for path in sorted(Path("/usr/local").rglob("*")):
         packages.add(package)
         edges.append({"elf": str(path), "library": str(resolved), "package": package})
 
+# Shared-library resolution alone does not discover terminal data/config roots.
+if any(package.startswith("libncursesw6") for package in packages):
+    packages.add("ncurses-base")
+if any(package.startswith("libreadline8") for package in packages):
+    packages.add("readline-common")
+
 status = []
 for package in sorted(packages):
     files = subprocess.check_output(["dpkg-query", "-L", package], text=True).splitlines()

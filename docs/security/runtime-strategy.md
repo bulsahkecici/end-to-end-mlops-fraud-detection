@@ -89,3 +89,10 @@ standalone ldd of those private objects does not inherit that entrypoint RPATH.
 Each build-time inspection now includes only the inspected object's sibling
 library directory. No runtime LD_LIBRARY_PATH or library replacement is used;
 real psycopg2/native imports and server execution remain mandatory.
+
+Terminal runtime data (ncurses-base) and readline configuration are explicit
+non-ELF roots when their corresponding CPython libraries are retained. Smoke
+validation exercises curses terminfo and both UUID1/UUID4 paths, rather than
+claiming support from imports alone. The vulnerable CLI executables infocmp,
+nsenter and mount must be absent from both final images. This permits precise
+reachability review of any conservatively source-mapped residual findings.
